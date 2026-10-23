@@ -84,10 +84,17 @@ app.use((err, _req, res, _next) => {
     }
   });
 });
-app.listen(PORT, () => {
-  console.log(`============================================================`);
-  console.log(`\u{1F680} NETFIX AI Backend API running on port ${PORT}`);
-  console.log(`\u{1F310} Frontend Origin: ${process.env.FRONTEND_URL || "http://localhost:3000"}`);
-  console.log(`\u{1F6E1}\uFE0F Admin Origin:    ${process.env.ADMIN_URL || "http://localhost:3001"}`);
-  console.log(`============================================================`);
-});
+// Local dev: start the server. On Vercel the app is exported as a single
+// serverless function (see vercel.json) and this listener is never called.
+if (process.env.NODE_ENV !== "vercel") {
+  app.listen(PORT, () => {
+    console.log(`============================================================`);
+    console.log(`\u{1F680} NETFIX AI Backend API running on port ${PORT}`);
+    console.log(`\u{1F310} Frontend Origin: ${process.env.FRONTEND_URL || "http://localhost:3000"}`);
+    console.log(`\u{1F6E1}\uFE0F Admin Origin:    ${process.env.ADMIN_URL || "http://localhost:3001"}`);
+    console.log(`============================================================`);
+  });
+}
+
+// Vercel serverless export — the whole Express app becomes one function.
+export default app;

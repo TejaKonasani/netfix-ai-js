@@ -14,7 +14,12 @@ const env = process.env;
  * seeded demo accounts). Production behavior is always strict.
  */
 export const isProduction = env.NODE_ENV === "production";
-export const demoModeEnabled = !isProduction && env.DEMO_MODE !== "false";
+// Demo mode: ON by default in development, OFF in production — but can be
+// explicitly enabled in production with DEMO_MODE=true (used for demo
+// deployments where the OTP email flow is not configured).
+export const demoModeEnabled = isProduction
+  ? env.DEMO_MODE === "true"
+  : env.DEMO_MODE !== "false";
 
 /**
  * JWT signing. In production a real JWT_SECRET is mandatory — the server
