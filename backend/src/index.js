@@ -85,8 +85,11 @@ app.use((err, _req, res, _next) => {
   });
 });
 // Local dev: start the server. On Vercel the app is exported as a single
-// serverless function (see vercel.json) and this listener is never called.
-if (process.env.NODE_ENV !== "vercel") {
+// serverless function (see vercel.json) and this listener must NOT run —
+// Vercel sets VERCEL=true (and NODE_ENV=production), so skip listen there.
+const isVercel =
+  process.env.VERCEL === "true" || process.env.VERCEL_ENV !== undefined;
+if (!isVercel) {
   app.listen(PORT, () => {
     console.log(`============================================================`);
     console.log(`\u{1F680} NETFIX AI Backend API running on port ${PORT}`);
