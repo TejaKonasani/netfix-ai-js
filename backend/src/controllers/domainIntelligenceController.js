@@ -1,5 +1,6 @@
 import { supabaseService } from "../services/supabaseService.js";
 import { auditService } from "../services/auditService.js";
+import { sendSuccess, sendError } from "../utils/http.js";
 class DomainIntelligenceController {
   // ============================================================
   // MODULE 10: GST INTELLIGENCE ENGINE
@@ -9,14 +10,14 @@ class DomainIntelligenceController {
       const user = req.user;
       const { entity_id, case_id, period, filing_type } = req.body;
       if (!entity_id) {
-        return res.status(400).json({ success: false, error: "INVALID_INPUT: entity_id is required" });
+        return sendError(res, 400, "INVALID_INPUT", "entity_id is required");
       }
       const entity = await supabaseService.getEntityById(String(entity_id));
       if (!entity) {
-        return res.status(404).json({ success: false, error: "NOT_FOUND: Entity not found" });
+        return sendError(res, 404, "NOT_FOUND", "Entity not found");
       }
       if (user.role === "client" && entity.owner_user_id !== user.id) {
-        return res.status(403).json({ success: false, error: "FORBIDDEN: You do not have access to this entity" });
+        return sendError(res, 403, "FORBIDDEN", "You do not have access to this entity");
       }
       const computed_data = {
         invoiced_value: 1245e4,
@@ -53,16 +54,13 @@ class DomainIntelligenceController {
         user.id,
         { period, entity_id }
       );
-      return res.status(200).json({
-        success: true,
-        data: {
+      return sendSuccess(res, {
           filing,
           mismatches: await supabaseService.getGstMismatches(filing.id),
           agent_task: agentTask
-        }
-      });
+        });
     } catch (err) {
-      return res.status(500).json({ success: false, error: err.message || "SERVER_ERROR" });
+      return sendError(res, 500, "SERVER_ERROR", err.message || "SERVER_ERROR");
     }
   }
   static async getGstFilings(req, res) {
@@ -71,15 +69,15 @@ class DomainIntelligenceController {
       const entity_id = String(req.params.entity_id);
       const entity = await supabaseService.getEntityById(entity_id);
       if (!entity) {
-        return res.status(404).json({ success: false, error: "NOT_FOUND: Entity not found" });
+        return sendError(res, 404, "NOT_FOUND", "Entity not found");
       }
       if (user.role === "client" && entity.owner_user_id !== user.id) {
-        return res.status(403).json({ success: false, error: "FORBIDDEN: Access denied to entity GST filings" });
+        return sendError(res, 403, "FORBIDDEN", "Access denied to entity GST filings");
       }
       const filings = await supabaseService.getGstFilingsByEntity(entity_id);
-      return res.status(200).json({ success: true, data: filings });
+      return sendSuccess(res, filings);
     } catch (err) {
-      return res.status(500).json({ success: false, error: err.message || "SERVER_ERROR" });
+      return sendError(res, 500, "SERVER_ERROR", err.message || "SERVER_ERROR");
     }
   }
   static async approveGstFiling(req, res) {
@@ -88,11 +86,11 @@ class DomainIntelligenceController {
       const id = String(req.params.id);
       const filing = await supabaseService.getGstFilingById(id);
       if (!filing) {
-        return res.status(404).json({ success: false, error: "NOT_FOUND: GST filing not found" });
+        return sendError(res, 404, "NOT_FOUND", "GST filing not found");
       }
       const entity = await supabaseService.getEntityById(filing.entity_id);
       if (user.role === "client" && entity?.owner_user_id !== user.id) {
-        return res.status(403).json({ success: false, error: "FORBIDDEN: You do not own this entity" });
+        return sendError(res, 403, "FORBIDDEN", "You do not own this entity");
       }
       const approved = await supabaseService.approveGstFiling(id);
       await auditService.log(
@@ -104,9 +102,9 @@ class DomainIntelligenceController {
         user.id,
         { filing_id: id }
       );
-      return res.status(200).json({ success: true, data: approved });
+      return sendSuccess(res, approved);
     } catch (err) {
-      return res.status(500).json({ success: false, error: err.message || "SERVER_ERROR" });
+      return sendError(res, 500, "SERVER_ERROR", err.message || "SERVER_ERROR");
     }
   }
   // ============================================================
@@ -117,14 +115,14 @@ class DomainIntelligenceController {
       const user = req.user;
       const { entity_id, case_id, assessment_year } = req.body;
       if (!entity_id) {
-        return res.status(400).json({ success: false, error: "INVALID_INPUT: entity_id is required" });
+        return sendError(res, 400, "INVALID_INPUT", "entity_id is required");
       }
       const entity = await supabaseService.getEntityById(String(entity_id));
       if (!entity) {
-        return res.status(404).json({ success: false, error: "NOT_FOUND: Entity not found" });
+        return sendError(res, 404, "NOT_FOUND", "Entity not found");
       }
       if (user.role === "client" && entity.owner_user_id !== user.id) {
-        return res.status(403).json({ success: false, error: "FORBIDDEN: You do not have access to this entity" });
+        return sendError(res, 403, "FORBIDDEN", "You do not have access to this entity");
       }
       const filing = await supabaseService.createOrUpdateIncomeTaxFiling({
         entity_id: String(entity_id),
@@ -165,9 +163,9 @@ class DomainIntelligenceController {
         user.id,
         { assessment_year }
       );
-      return res.status(200).json({ success: true, data: { filing, agent_task: agentTask } });
+      return sendSuccess(res, { filing, agent_task: agentTask });
     } catch (err) {
-      return res.status(500).json({ success: false, error: err.message || "SERVER_ERROR" });
+      return sendError(res, 500, "SERVER_ERROR", err.message || "SERVER_ERROR");
     }
   }
   static async getIncomeTaxFilings(req, res) {
@@ -176,15 +174,15 @@ class DomainIntelligenceController {
       const entity_id = String(req.params.entity_id);
       const entity = await supabaseService.getEntityById(entity_id);
       if (!entity) {
-        return res.status(404).json({ success: false, error: "NOT_FOUND: Entity not found" });
+        return sendError(res, 404, "NOT_FOUND", "Entity not found");
       }
       if (user.role === "client" && entity.owner_user_id !== user.id) {
-        return res.status(403).json({ success: false, error: "FORBIDDEN: Access denied" });
+        return sendError(res, 403, "FORBIDDEN", "Access denied");
       }
       const filings = await supabaseService.getIncomeTaxFilingsByEntity(entity_id);
-      return res.status(200).json({ success: true, data: filings });
+      return sendSuccess(res, filings);
     } catch (err) {
-      return res.status(500).json({ success: false, error: err.message || "SERVER_ERROR" });
+      return sendError(res, 500, "SERVER_ERROR", err.message || "SERVER_ERROR");
     }
   }
   static async approveIncomeTaxFiling(req, res) {
@@ -193,11 +191,11 @@ class DomainIntelligenceController {
       const id = String(req.params.id);
       const filing = await supabaseService.getIncomeTaxFilingById(id);
       if (!filing) {
-        return res.status(404).json({ success: false, error: "NOT_FOUND: Income tax filing not found" });
+        return sendError(res, 404, "NOT_FOUND", "Income tax filing not found");
       }
       const entity = await supabaseService.getEntityById(filing.entity_id);
       if (user.role === "client" && entity?.owner_user_id !== user.id) {
-        return res.status(403).json({ success: false, error: "FORBIDDEN: You do not own this entity" });
+        return sendError(res, 403, "FORBIDDEN", "You do not own this entity");
       }
       const approved = await supabaseService.approveIncomeTaxFiling(id);
       await auditService.log(
@@ -209,9 +207,9 @@ class DomainIntelligenceController {
         user.id,
         { filing_id: id }
       );
-      return res.status(200).json({ success: true, data: approved });
+      return sendSuccess(res, approved);
     } catch (err) {
-      return res.status(500).json({ success: false, error: err.message || "SERVER_ERROR" });
+      return sendError(res, 500, "SERVER_ERROR", err.message || "SERVER_ERROR");
     }
   }
   // ============================================================
@@ -223,9 +221,9 @@ class DomainIntelligenceController {
       const query = String(req.query.query || "");
       const category = String(req.query.category || "criminal");
       const results = await supabaseService.searchKnowledgeDocs(query, category, user.role);
-      return res.status(200).json({ success: true, data: results });
+      return sendSuccess(res, results);
     } catch (err) {
-      return res.status(500).json({ success: false, error: err.message || "SERVER_ERROR" });
+      return sendError(res, 500, "SERVER_ERROR", err.message || "SERVER_ERROR");
     }
   }
   static async queryLegalResearch(req, res) {
@@ -233,15 +231,15 @@ class DomainIntelligenceController {
       const user = req.user;
       const { case_id, query_text, category } = req.body;
       if (!query_text) {
-        return res.status(400).json({ success: false, error: "INVALID_INPUT: query_text is required" });
+        return sendError(res, 400, "INVALID_INPUT", "query_text is required");
       }
       if (case_id) {
         const c = await supabaseService.getCaseById(String(case_id));
         if (!c) {
-          return res.status(404).json({ success: false, error: "NOT_FOUND: Case not found" });
+          return sendError(res, 404, "NOT_FOUND", "Case not found");
         }
         if (user.role === "client" && c.client_id !== user.id) {
-          return res.status(403).json({ success: false, error: "FORBIDDEN: You do not have access to this case" });
+          return sendError(res, 403, "FORBIDDEN", "You do not have access to this case");
         }
       }
       const rq = await supabaseService.createResearchQuery({
@@ -274,18 +272,18 @@ class DomainIntelligenceController {
         user.id,
         { query_text }
       );
-      return res.status(200).json({ success: true, data: { research: rq, agent_task: agentTask } });
+      return sendSuccess(res, { research: rq, agent_task: agentTask });
     } catch (err) {
-      return res.status(500).json({ success: false, error: err.message || "SERVER_ERROR" });
+      return sendError(res, 500, "SERVER_ERROR", err.message || "SERVER_ERROR");
     }
   }
   static async getResearchHistory(req, res) {
     try {
       const user = req.user;
       const history = await supabaseService.getResearchHistoryByUser(user.id);
-      return res.status(200).json({ success: true, data: history });
+      return sendSuccess(res, history);
     } catch (err) {
-      return res.status(500).json({ success: false, error: err.message || "SERVER_ERROR" });
+      return sendError(res, 500, "SERVER_ERROR", err.message || "SERVER_ERROR");
     }
   }
   // ============================================================
@@ -300,13 +298,13 @@ class DomainIntelligenceController {
         if (graph.centerNode.entity_id) {
           const entity = await supabaseService.getEntityById(graph.centerNode.entity_id);
           if (user.role === "client" && entity?.owner_user_id !== user.id) {
-            return res.status(403).json({ success: false, error: "FORBIDDEN: Knowledge graph node belongs to an unauthorized entity" });
+            return sendError(res, 403, "FORBIDDEN", "Knowledge graph node belongs to an unauthorized entity");
           }
         }
       }
-      return res.status(200).json({ success: true, data: graph });
+      return sendSuccess(res, graph);
     } catch (err) {
-      return res.status(500).json({ success: false, error: err.message || "SERVER_ERROR" });
+      return sendError(res, 500, "SERVER_ERROR", err.message || "SERVER_ERROR");
     }
   }
   // ============================================================
@@ -317,14 +315,14 @@ class DomainIntelligenceController {
       const user = req.user;
       const { case_id, template_type } = req.body;
       if (!case_id) {
-        return res.status(400).json({ success: false, error: "INVALID_INPUT: case_id is required" });
+        return sendError(res, 400, "INVALID_INPUT", "case_id is required");
       }
       const c = await supabaseService.getCaseById(String(case_id));
       if (!c) {
-        return res.status(404).json({ success: false, error: "NOT_FOUND: Case not found" });
+        return sendError(res, 404, "NOT_FOUND", "Case not found");
       }
       if (user.role === "client" && c.client_id !== user.id) {
-        return res.status(403).json({ success: false, error: "FORBIDDEN: You do not have access to this case" });
+        return sendError(res, 403, "FORBIDDEN", "You do not have access to this case");
       }
       const draftText = `LEGAL NOTICE
 
@@ -362,9 +360,9 @@ Under the instructions and on behalf of our client MARG Technologies Pvt Ltd, we
         user.id,
         { case_id, template_type }
       );
-      return res.status(200).json({ success: true, data: { draft, agent_task: agentTask } });
+      return sendSuccess(res, { draft, agent_task: agentTask });
     } catch (err) {
-      return res.status(500).json({ success: false, error: err.message || "SERVER_ERROR" });
+      return sendError(res, 500, "SERVER_ERROR", err.message || "SERVER_ERROR");
     }
   }
   static async getDrafts(req, res) {
@@ -373,18 +371,18 @@ Under the instructions and on behalf of our client MARG Technologies Pvt Ltd, we
       const case_id = String(req.params.case_id);
       const c = await supabaseService.getCaseById(case_id);
       if (!c) {
-        return res.status(404).json({ success: false, error: "NOT_FOUND: Case not found" });
+        return sendError(res, 404, "NOT_FOUND", "Case not found");
       }
       if (user.role === "client" && c.client_id !== user.id) {
-        return res.status(403).json({ success: false, error: "FORBIDDEN: You do not have access to this case" });
+        return sendError(res, 403, "FORBIDDEN", "You do not have access to this case");
       }
       let drafts = await supabaseService.getDraftsByCase(case_id);
       if (user.role === "client") {
         drafts = drafts.filter((d) => d.is_client_visible || d.status === "finalized");
       }
-      return res.status(200).json({ success: true, data: drafts });
+      return sendSuccess(res, drafts);
     } catch (err) {
-      return res.status(500).json({ success: false, error: err.message || "SERVER_ERROR" });
+      return sendError(res, 500, "SERVER_ERROR", err.message || "SERVER_ERROR");
     }
   }
   static async updateDraft(req, res) {
@@ -394,10 +392,10 @@ Under the instructions and on behalf of our client MARG Technologies Pvt Ltd, we
       const { edited_content, status, is_client_visible } = req.body;
       const existing = await supabaseService.getDraftById(id);
       if (!existing) {
-        return res.status(404).json({ success: false, error: "NOT_FOUND: Draft document not found" });
+        return sendError(res, 404, "NOT_FOUND", "Draft document not found");
       }
       if (user.role === "client") {
-        return res.status(403).json({ success: false, error: "FORBIDDEN: Clients cannot edit internal legal drafts" });
+        return sendError(res, 403, "FORBIDDEN", "Clients cannot edit internal legal drafts");
       }
       const updated = await supabaseService.createOrUpdateDraft({
         id,
@@ -414,9 +412,9 @@ Under the instructions and on behalf of our client MARG Technologies Pvt Ltd, we
         user.id,
         { status }
       );
-      return res.status(200).json({ success: true, data: updated });
+      return sendSuccess(res, updated);
     } catch (err) {
-      return res.status(500).json({ success: false, error: err.message || "SERVER_ERROR" });
+      return sendError(res, 500, "SERVER_ERROR", err.message || "SERVER_ERROR");
     }
   }
   // ============================================================
@@ -427,14 +425,14 @@ Under the instructions and on behalf of our client MARG Technologies Pvt Ltd, we
       const user = req.user;
       const { entity_id, period, file_name } = req.body;
       if (!entity_id) {
-        return res.status(400).json({ success: false, error: "INVALID_INPUT: entity_id is required" });
+        return sendError(res, 400, "INVALID_INPUT", "entity_id is required");
       }
       const entity = await supabaseService.getEntityById(String(entity_id));
       if (!entity) {
-        return res.status(404).json({ success: false, error: "NOT_FOUND: Entity not found" });
+        return sendError(res, 404, "NOT_FOUND", "Entity not found");
       }
       if (user.role === "client" && entity.owner_user_id !== user.id) {
-        return res.status(403).json({ success: false, error: "FORBIDDEN: Access denied" });
+        return sendError(res, 403, "FORBIDDEN", "Access denied");
       }
       const report = await supabaseService.createReconciliationReport({
         entity_id: String(entity_id),
@@ -468,9 +466,9 @@ Under the instructions and on behalf of our client MARG Technologies Pvt Ltd, we
         user.id,
         { entity_id }
       );
-      return res.status(200).json({ success: true, data: { report, agent_task: agentTask } });
+      return sendSuccess(res, { report, agent_task: agentTask });
     } catch (err) {
-      return res.status(500).json({ success: false, error: err.message || "SERVER_ERROR" });
+      return sendError(res, 500, "SERVER_ERROR", err.message || "SERVER_ERROR");
     }
   }
   static async getReconciliationReports(req, res) {
@@ -479,15 +477,15 @@ Under the instructions and on behalf of our client MARG Technologies Pvt Ltd, we
       const entity_id = String(req.params.entity_id);
       const entity = await supabaseService.getEntityById(entity_id);
       if (!entity) {
-        return res.status(404).json({ success: false, error: "NOT_FOUND: Entity not found" });
+        return sendError(res, 404, "NOT_FOUND", "Entity not found");
       }
       if (user.role === "client" && entity.owner_user_id !== user.id) {
-        return res.status(403).json({ success: false, error: "FORBIDDEN: Access denied" });
+        return sendError(res, 403, "FORBIDDEN", "Access denied");
       }
       const reports = await supabaseService.getReconciliationReportsByEntity(entity_id);
-      return res.status(200).json({ success: true, data: reports });
+      return sendSuccess(res, reports);
     } catch (err) {
-      return res.status(500).json({ success: false, error: err.message || "SERVER_ERROR" });
+      return sendError(res, 500, "SERVER_ERROR", err.message || "SERVER_ERROR");
     }
   }
   // ============================================================
@@ -498,12 +496,12 @@ Under the instructions and on behalf of our client MARG Technologies Pvt Ltd, we
       const user = req.user;
       const { case_id, sender, subject, body_text } = req.body;
       if (!subject || !body_text) {
-        return res.status(400).json({ success: false, error: "INVALID_INPUT: subject and body_text are required" });
+        return sendError(res, 400, "INVALID_INPUT", "subject and body_text are required");
       }
       if (case_id) {
         const c = await supabaseService.getCaseById(String(case_id));
         if (user.role === "client" && c?.client_id !== user.id) {
-          return res.status(403).json({ success: false, error: "FORBIDDEN: Access denied to case" });
+          return sendError(res, 403, "FORBIDDEN", "Access denied to case");
         }
       }
       const emailRecord = await supabaseService.createEmailIntake({
@@ -536,9 +534,9 @@ Under the instructions and on behalf of our client MARG Technologies Pvt Ltd, we
         user.id,
         { subject }
       );
-      return res.status(200).json({ success: true, data: { email: emailRecord, agent_task: agentTask } });
+      return sendSuccess(res, { email: emailRecord, agent_task: agentTask });
     } catch (err) {
-      return res.status(500).json({ success: false, error: err.message || "SERVER_ERROR" });
+      return sendError(res, 500, "SERVER_ERROR", err.message || "SERVER_ERROR");
     }
   }
   static async getEmailIntakeByCase(req, res) {
@@ -547,12 +545,12 @@ Under the instructions and on behalf of our client MARG Technologies Pvt Ltd, we
       const case_id = String(req.params.case_id);
       const c = await supabaseService.getCaseById(case_id);
       if (user.role === "client" && c?.client_id !== user.id) {
-        return res.status(403).json({ success: false, error: "FORBIDDEN: Access denied to case email intake" });
+        return sendError(res, 403, "FORBIDDEN", "Access denied to case email intake");
       }
       const emails = await supabaseService.getEmailIntakeByCase(case_id);
-      return res.status(200).json({ success: true, data: emails });
+      return sendSuccess(res, emails);
     } catch (err) {
-      return res.status(500).json({ success: false, error: err.message || "SERVER_ERROR" });
+      return sendError(res, 500, "SERVER_ERROR", err.message || "SERVER_ERROR");
     }
   }
   // ============================================================
@@ -567,11 +565,11 @@ Under the instructions and on behalf of our client MARG Technologies Pvt Ltd, we
         const leases = await supabaseService.getLeasesByTenant(user.id);
         const allowedPropIds = new Set(leases.map((l) => l.property_id));
         const filtered = properties.filter((p) => allowedPropIds.has(p.id));
-        return res.status(200).json({ success: true, data: filtered });
+        return sendSuccess(res, filtered);
       }
-      return res.status(200).json({ success: true, data: properties });
+      return sendSuccess(res, properties);
     } catch (err) {
-      return res.status(500).json({ success: false, error: err.message || "SERVER_ERROR" });
+      return sendError(res, 500, "SERVER_ERROR", err.message || "SERVER_ERROR");
     }
   }
   static async getPropertyById(req, res) {
@@ -580,18 +578,18 @@ Under the instructions and on behalf of our client MARG Technologies Pvt Ltd, we
       const id = String(req.params.id);
       const property = await supabaseService.getPropertyById(id);
       if (!property) {
-        return res.status(404).json({ success: false, error: "NOT_FOUND: Property not found" });
+        return sendError(res, 404, "NOT_FOUND", "Property not found");
       }
       if (user.role === "tenant") {
         const leases = await supabaseService.getLeasesByTenant(user.id);
         const isTenantOfProp = leases.some((l) => l.property_id === id);
         if (!isTenantOfProp) {
-          return res.status(403).json({ success: false, error: "FORBIDDEN: Access denied to property record" });
+          return sendError(res, 403, "FORBIDDEN", "Access denied to property record");
         }
       }
-      return res.status(200).json({ success: true, data: property });
+      return sendSuccess(res, property);
     } catch (err) {
-      return res.status(500).json({ success: false, error: err.message || "SERVER_ERROR" });
+      return sendError(res, 500, "SERVER_ERROR", err.message || "SERVER_ERROR");
     }
   }
   static async getLeasesByTenant(req, res) {
@@ -599,12 +597,12 @@ Under the instructions and on behalf of our client MARG Technologies Pvt Ltd, we
       const user = req.user;
       const tenant_id = String(req.params.tenant_id);
       if (user.role === "tenant" && tenant_id !== user.id) {
-        return res.status(403).json({ success: false, error: "FORBIDDEN: You can only view your own lease records" });
+        return sendError(res, 403, "FORBIDDEN", "You can only view your own lease records");
       }
       const leases = await supabaseService.getLeasesByTenant(tenant_id);
-      return res.status(200).json({ success: true, data: leases });
+      return sendSuccess(res, leases);
     } catch (err) {
-      return res.status(500).json({ success: false, error: err.message || "SERVER_ERROR" });
+      return sendError(res, 500, "SERVER_ERROR", err.message || "SERVER_ERROR");
     }
   }
   // ============================================================
@@ -623,11 +621,11 @@ Under the instructions and on behalf of our client MARG Technologies Pvt Ltd, we
             allowed.push(proj);
           }
         }
-        return res.status(200).json({ success: true, data: allowed.length > 0 ? allowed : projects });
+        return sendSuccess(res, allowed.length > 0 ? allowed : projects);
       }
-      return res.status(200).json({ success: true, data: projects });
+      return sendSuccess(res, projects);
     } catch (err) {
-      return res.status(500).json({ success: false, error: err.message || "SERVER_ERROR" });
+      return sendError(res, 500, "SERVER_ERROR", err.message || "SERVER_ERROR");
     }
   }
   static async getProjectById(req, res) {
@@ -636,17 +634,17 @@ Under the instructions and on behalf of our client MARG Technologies Pvt Ltd, we
       const id = String(req.params.id);
       const project = await supabaseService.getProjectById(id);
       if (!project) {
-        return res.status(404).json({ success: false, error: "NOT_FOUND: Project not found" });
+        return sendError(res, 404, "NOT_FOUND", "Project not found");
       }
       if (user.role === "tenant") {
         const sh = await supabaseService.getProjectStakeholders(id);
         if (!sh.some((s) => s.user_id === user.id)) {
-          return res.status(403).json({ success: false, error: "FORBIDDEN: You are not a stakeholder of this project" });
+          return sendError(res, 403, "FORBIDDEN", "You are not a stakeholder of this project");
         }
       }
-      return res.status(200).json({ success: true, data: project });
+      return sendSuccess(res, project);
     } catch (err) {
-      return res.status(500).json({ success: false, error: err.message || "SERVER_ERROR" });
+      return sendError(res, 500, "SERVER_ERROR", err.message || "SERVER_ERROR");
     }
   }
   static async getProjectMilestones(req, res) {
@@ -655,18 +653,18 @@ Under the instructions and on behalf of our client MARG Technologies Pvt Ltd, we
       const id = String(req.params.id);
       const project = await supabaseService.getProjectById(id);
       if (!project) {
-        return res.status(404).json({ success: false, error: "NOT_FOUND: Project not found" });
+        return sendError(res, 404, "NOT_FOUND", "Project not found");
       }
       if (user.role === "tenant") {
         const sh = await supabaseService.getProjectStakeholders(id);
         if (!sh.some((s) => s.user_id === user.id)) {
-          return res.status(403).json({ success: false, error: "FORBIDDEN: Access denied" });
+          return sendError(res, 403, "FORBIDDEN", "Access denied");
         }
       }
       const milestones = await supabaseService.getProjectMilestones(id);
-      return res.status(200).json({ success: true, data: milestones });
+      return sendSuccess(res, milestones);
     } catch (err) {
-      return res.status(500).json({ success: false, error: err.message || "SERVER_ERROR" });
+      return sendError(res, 500, "SERVER_ERROR", err.message || "SERVER_ERROR");
     }
   }
 }

@@ -1,5 +1,6 @@
 import { supabaseService } from "../services/supabaseService.js";
 import { auditService } from "../services/auditService.js";
+import { sendSuccess, sendError } from "../utils/http.js";
 const documentController = {
   /**
    * POST /api/v1/documents/upload
@@ -7,22 +8,19 @@ const documentController = {
   async uploadDocument(req, res) {
     try {
       if (!req.user) {
-        return res.status(401).json({ success: false, error: { code: "UNAUTHENTICATED", message: "Authentication required." } });
+        return sendError(res, 401, "UNAUTHENTICATED", "Authentication required.");
       }
       const { caseId, entityId, fileName, fileUrl, fileSize, mimeType, documentType, isConfidential } = req.body;
       if (!fileName || !fileName.trim()) {
-        return res.status(400).json({ success: false, error: { code: "VALIDATION_ERROR", message: "Document file name is required." } });
+        return sendError(res, 400, "VALIDATION_ERROR", "Document file name is required.");
       }
       if (caseId) {
         const c = await supabaseService.getCaseById(String(caseId));
         if (!c) {
-          return res.status(400).json({ success: false, error: { code: "VALIDATION_ERROR", message: "Target case does not exist." } });
+          return sendError(res, 400, "VALIDATION_ERROR", "Target case does not exist.");
         }
         if (req.user.role === "client" && c.client_id !== req.user.id) {
-          return res.status(403).json({
-            success: false,
-            error: { code: "FORBIDDEN", message: "Cannot upload document to a case belonging to another client." }
-          });
+          return sendError(res, 403, "FORBIDDEN", "Cannot upload document to a case belonging to another client.");
         }
       }
       const doc = await supabaseService.createDocument({
@@ -42,12 +40,9 @@ const documentController = {
         console.warn("[DocumentController] Auto OCR note:", ocrErr);
       }
       await auditService.log("DOCUMENT_UPLOADED", req.user.email, doc.file_name, "Documents", "user", req.user.id);
-      return res.status(201).json({
-        success: true,
-        data: doc
-      });
+      return sendSuccess(res, doc, 201);
     } catch (err) {
-      return res.status(500).json({ success: false, error: { code: "SERVER_ERROR", message: err.message } });
+      return sendError(res, 500, "SERVER_ERROR", err.message);
     }
   },
   /**
@@ -56,29 +51,23 @@ const documentController = {
   async getDocumentById(req, res) {
     try {
       if (!req.user) {
-        return res.status(401).json({ success: false, error: { code: "UNAUTHENTICATED", message: "Authentication required." } });
+        return sendError(res, 401, "UNAUTHENTICATED", "Authentication required.");
       }
       const id = String(req.params.id);
       const doc = await supabaseService.getDocumentById(id);
       if (!doc) {
-        return res.status(404).json({ success: false, error: { code: "NOT_FOUND", message: "Document not found." } });
+        return sendError(res, 404, "NOT_FOUND", "Document not found.");
       }
       if (req.user.role === "client" && doc.uploaded_by !== req.user.id && doc.case_id !== "case_gst_2026") {
-        return res.status(403).json({
-          success: false,
-          error: { code: "FORBIDDEN", message: "Unauthorized document access attempt." }
-        });
+        return sendError(res, 403, "FORBIDDEN", "Unauthorized document access attempt.");
       }
       const extraction = await supabaseService.getDocumentExtraction(id);
-      return res.status(200).json({
-        success: true,
-        data: {
+      return sendSuccess(res, {
           ...doc,
           extraction
-        }
-      });
+        });
     } catch (err) {
-      return res.status(500).json({ success: false, error: { code: "SERVER_ERROR", message: err.message } });
+      return sendError(res, 500, "SERVER_ERROR", err.message);
     }
   },
   /**
@@ -87,29 +76,26 @@ const documentController = {
   async downloadDocument(req, res) {
     try {
       if (!req.user) {
-        return res.status(401).json({ success: false, error: { code: "UNAUTHENTICATED", message: "Authentication required." } });
+        return sendError(res, 401, "UNAUTHENTICATED", "Authentication required.");
       }
       const id = String(req.params.id);
       const doc = await supabaseService.getDocumentById(id);
       if (!doc) {
-        return res.status(404).json({ success: false, error: { code: "NOT_FOUND", message: "Document not found." } });
+        return sendError(res, 404, "NOT_FOUND", "Document not found.");
       }
       if (req.user.role === "client" && doc.uploaded_by !== req.user.id && doc.case_id !== "case_gst_2026") {
         await auditService.log("UNAUTHORIZED_DOCUMENT_DOWNLOAD", req.user.email, `Doc #${id}`, "Documents", "user", req.user.id);
-        return res.status(403).json({ success: false, error: { code: "FORBIDDEN", message: "Unauthorized download request." } });
+        return sendError(res, 403, "FORBIDDEN", "Unauthorized download request.");
       }
       await auditService.log("DOCUMENT_DOWNLOADED", req.user.email, doc.file_name, "Documents", "user", req.user.id);
       const signedUrl = `${doc.file_url}?token=sec_${Date.now()}_expires_3600`;
-      return res.status(200).json({
-        success: true,
-        data: {
+      return sendSuccess(res, {
           fileName: doc.file_name,
           downloadUrl: signedUrl,
           expiresInSeconds: 3600
-        }
-      });
+        });
     } catch (err) {
-      return res.status(500).json({ success: false, error: { code: "SERVER_ERROR", message: err.message } });
+      return sendError(res, 500, "SERVER_ERROR", err.message);
     }
   },
   /**
@@ -118,16 +104,13 @@ const documentController = {
   async getDocuments(req, res) {
     try {
       if (!req.user) {
-        return res.status(401).json({ success: false, error: { code: "UNAUTHENTICATED", message: "Authentication required." } });
+        return sendError(res, 401, "UNAUTHENTICATED", "Authentication required.");
       }
       const caseId = typeof req.query.caseId === "string" ? req.query.caseId : void 0;
       const docs = await supabaseService.getDocumentsForUser(req.user.id, req.user.role, caseId);
-      return res.status(200).json({
-        success: true,
-        data: docs
-      });
+      return sendSuccess(res, docs);
     } catch (err) {
-      return res.status(500).json({ success: false, error: { code: "SERVER_ERROR", message: err.message } });
+      return sendError(res, 500, "SERVER_ERROR", err.message);
     }
   }
 };

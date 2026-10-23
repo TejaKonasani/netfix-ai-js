@@ -1,4 +1,5 @@
 import { supabaseService } from "../services/supabaseService.js";
+import { sendSuccess, sendError } from "../utils/http.js";
 const clientPortalController = {
   /**
    * GET /api/v1/client/dashboard
@@ -6,10 +7,10 @@ const clientPortalController = {
   async getDashboard(req, res) {
     try {
       if (!req.user) {
-        return res.status(401).json({ success: false, error: { code: "UNAUTHENTICATED", message: "Authentication required." } });
+        return sendError(res, 401, "UNAUTHENTICATED", "Authentication required.");
       }
       if (req.user.role !== "client" && req.user.role !== "management") {
-        return res.status(403).json({ success: false, error: { code: "FORBIDDEN", message: "Access restricted to Client Portal." } });
+        return sendError(res, 403, "FORBIDDEN", "Access restricted to Client Portal.");
       }
       const cases = await supabaseService.getCasesForUser(req.user.id, "client");
       const docs = await supabaseService.getDocumentsForUser(req.user.id, "client");
@@ -18,9 +19,7 @@ const clientPortalController = {
       const inReviewCount = cases.filter((c) => c.status === "in_review").length;
       const completedCount = cases.filter((c) => c.status === "completed").length;
       const documentCount = docs.length;
-      return res.status(200).json({
-        success: true,
-        data: {
+      return sendSuccess(res, {
           clientName: "Vikram Reddy",
           metrics: {
             activeCases: activeCasesCount || 5,
@@ -38,10 +37,9 @@ const clientPortalController = {
           ],
           entities,
           cases
-        }
-      });
+        });
     } catch (err) {
-      return res.status(500).json({ success: false, error: { code: "SERVER_ERROR", message: err.message } });
+      return sendError(res, 500, "SERVER_ERROR", err.message);
     }
   },
   /**
@@ -50,15 +48,12 @@ const clientPortalController = {
   async getCases(req, res) {
     try {
       if (!req.user) {
-        return res.status(401).json({ success: false, error: { code: "UNAUTHENTICATED", message: "Authentication required." } });
+        return sendError(res, 401, "UNAUTHENTICATED", "Authentication required.");
       }
       const cases = await supabaseService.getCasesForUser(req.user.id, "client");
-      return res.status(200).json({
-        success: true,
-        data: cases
-      });
+      return sendSuccess(res, cases);
     } catch (err) {
-      return res.status(500).json({ success: false, error: { code: "SERVER_ERROR", message: err.message } });
+      return sendError(res, 500, "SERVER_ERROR", err.message);
     }
   },
   /**
@@ -67,15 +62,12 @@ const clientPortalController = {
   async getDocuments(req, res) {
     try {
       if (!req.user) {
-        return res.status(401).json({ success: false, error: { code: "UNAUTHENTICATED", message: "Authentication required." } });
+        return sendError(res, 401, "UNAUTHENTICATED", "Authentication required.");
       }
       const docs = await supabaseService.getDocumentsForUser(req.user.id, "client");
-      return res.status(200).json({
-        success: true,
-        data: docs
-      });
+      return sendSuccess(res, docs);
     } catch (err) {
-      return res.status(500).json({ success: false, error: { code: "SERVER_ERROR", message: err.message } });
+      return sendError(res, 500, "SERVER_ERROR", err.message);
     }
   },
   /**
@@ -84,7 +76,7 @@ const clientPortalController = {
   async createRequest(req, res) {
     try {
       if (!req.user) {
-        return res.status(401).json({ success: false, error: { code: "UNAUTHENTICATED", message: "Authentication required." } });
+        return sendError(res, 401, "UNAUTHENTICATED", "Authentication required.");
       }
       const { requestType, matterId, subject, description } = req.body;
       const newReq = {
@@ -96,12 +88,9 @@ const clientPortalController = {
         status: "Pending",
         createdAt: (/* @__PURE__ */ new Date()).toISOString()
       };
-      return res.status(201).json({
-        success: true,
-        data: newReq
-      });
+      return sendSuccess(res, newReq, 201);
     } catch (err) {
-      return res.status(500).json({ success: false, error: { code: "SERVER_ERROR", message: err.message } });
+      return sendError(res, 500, "SERVER_ERROR", err.message);
     }
   },
   /**
@@ -110,21 +99,18 @@ const clientPortalController = {
   async handleApprovalAction(req, res) {
     try {
       if (!req.user) {
-        return res.status(401).json({ success: false, error: { code: "UNAUTHENTICATED", message: "Authentication required." } });
+        return sendError(res, 401, "UNAUTHENTICATED", "Authentication required.");
       }
       const { approvalId } = req.params;
       const { action, comments } = req.body;
-      return res.status(200).json({
-        success: true,
-        data: {
+      return sendSuccess(res, {
           approvalId,
           action,
           comments,
           updatedAt: (/* @__PURE__ */ new Date()).toISOString()
-        }
-      });
+        });
     } catch (err) {
-      return res.status(500).json({ success: false, error: { code: "SERVER_ERROR", message: err.message } });
+      return sendError(res, 500, "SERVER_ERROR", err.message);
     }
   },
   /**
@@ -133,15 +119,12 @@ const clientPortalController = {
   async getEntities(req, res) {
     try {
       if (!req.user) {
-        return res.status(401).json({ success: false, error: { code: "UNAUTHENTICATED", message: "Authentication required." } });
+        return sendError(res, 401, "UNAUTHENTICATED", "Authentication required.");
       }
       const entities = await supabaseService.getEntitiesForUser(req.user.id, "client");
-      return res.status(200).json({
-        success: true,
-        data: entities
-      });
+      return sendSuccess(res, entities);
     } catch (err) {
-      return res.status(500).json({ success: false, error: { code: "SERVER_ERROR", message: err.message } });
+      return sendError(res, 500, "SERVER_ERROR", err.message);
     }
   }
 };

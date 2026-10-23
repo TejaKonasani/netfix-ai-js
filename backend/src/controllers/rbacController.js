@@ -1,5 +1,6 @@
 import { rbacService } from "../services/rbacService.js";
 import { auditService } from "../services/auditService.js";
+import { sendSuccess, sendError } from "../utils/http.js";
 const rbacController = {
   /**
    * GET /api/v1/rbac/dashboard-data/:role?
@@ -18,18 +19,12 @@ const rbacController = {
           "user",
           req.user.id
         );
-        return res.status(403).json({
-          success: false,
-          error: {
-            code: "FORBIDDEN",
-            message: `403 Forbidden: You do not have permission to access the ${roleParam.toUpperCase()} workspace.`
-          }
-        });
+        return sendError(res, 403, "FORBIDDEN", `403 Forbidden: You do not have permission to access the ${roleParam.toUpperCase()} workspace.`);
       }
       const data = rbacService.getDashboardDataForRole(roleParam);
-      return res.status(200).json({ success: true, data });
+      return sendSuccess(res, data);
     } catch (err) {
-      return res.status(500).json({ success: false, error: { code: "SERVER_ERROR", message: err.message } });
+      return sendError(res, 500, "SERVER_ERROR", err.message);
     }
   },
   /**
@@ -43,25 +38,16 @@ const rbacController = {
       const user = rbacService.getUserContext(role, req.user?.email);
       const authCheck = await rbacService.verifyAccess(user, "case", caseId, "read");
       if (!authCheck.allowed) {
-        return res.status(403).json({
-          success: false,
-          error: {
-            code: "FORBIDDEN",
-            message: authCheck.reason || "403 Forbidden: Access denied to requested case resource."
-          }
-        });
+        return sendError(res, 403, "FORBIDDEN", authCheck.reason || "403 Forbidden: Access denied to requested case resource.");
       }
-      return res.status(200).json({
-        success: true,
-        data: {
+      return sendSuccess(res, {
           id: caseId,
           title: `Authorized Case Record ${caseId}`,
           status: "In Review",
           securityBoundary: `${user.role.toUpperCase()} -> TENANT_ISOLATED`
-        }
-      });
+        });
     } catch (err) {
-      return res.status(500).json({ success: false, error: { code: "SERVER_ERROR", message: err.message } });
+      return sendError(res, 500, "SERVER_ERROR", err.message);
     }
   },
   /**
@@ -72,9 +58,9 @@ const rbacController = {
     try {
       const role = req.user?.role || "client";
       const tasks = rbacService.getAgentTasks(role);
-      return res.status(200).json({ success: true, data: tasks });
+      return sendSuccess(res, tasks);
     } catch (err) {
-      return res.status(500).json({ success: false, error: { code: "SERVER_ERROR", message: err.message } });
+      return sendError(res, 500, "SERVER_ERROR", err.message);
     }
   },
   /**
@@ -88,17 +74,11 @@ const rbacController = {
       const targetId = targetResourceId || "FOREIGN-CONFIDENTIAL-DOC-999";
       const authCheck = await rbacService.verifyAccess(user, "document", targetId, "read");
       if (!authCheck.allowed) {
-        return res.status(403).json({
-          success: false,
-          error: {
-            code: "FORBIDDEN",
-            message: authCheck.reason || "403 Forbidden: Cross-user data access prevented by RBAC kernel."
-          }
-        });
+        return sendError(res, 403, "FORBIDDEN", authCheck.reason || "403 Forbidden: Cross-user data access prevented by RBAC kernel.");
       }
-      return res.status(200).json({ success: true, message: "Access allowed" });
+      return sendSuccess(res, { message: "Access allowed" });
     } catch (err) {
-      return res.status(500).json({ success: false, error: { code: "SERVER_ERROR", message: err.message } });
+      return sendError(res, 500, "SERVER_ERROR", err.message);
     }
   }
 };

@@ -1,5 +1,6 @@
 import { supabaseService } from "../services/supabaseService.js";
 import { auditService } from "../services/auditService.js";
+import { sendSuccess, sendError } from "../utils/http.js";
 class AdvancedAnalysisController {
   // ============================================================
   // MODULE 20: CASE FACT ENGINE
@@ -9,14 +10,14 @@ class AdvancedAnalysisController {
       const user = req.user;
       const { case_id } = req.body;
       if (!case_id) {
-        return res.status(400).json({ success: false, error: "INVALID_INPUT: case_id is required" });
+        return sendError(res, 400, "INVALID_INPUT", "case_id is required");
       }
       const c = await supabaseService.getCaseById(String(case_id));
       if (!c) {
-        return res.status(404).json({ success: false, error: "NOT_FOUND: Case not found" });
+        return sendError(res, 404, "NOT_FOUND", "Case not found");
       }
       if (user.role === "client" && c.client_id !== user.id) {
-        return res.status(403).json({ success: false, error: "FORBIDDEN: Access denied to case" });
+        return sendError(res, 403, "FORBIDDEN", "Access denied to case");
       }
       const facts = await supabaseService.extractCaseFacts(String(case_id), user.id);
       const agentTask = await supabaseService.createAgentTask({
@@ -37,9 +38,9 @@ class AdvancedAnalysisController {
         user.id,
         { count: facts.length }
       );
-      return res.status(200).json({ success: true, data: { facts, agent_task: agentTask } });
+      return sendSuccess(res, { facts, agent_task: agentTask });
     } catch (err) {
-      return res.status(500).json({ success: false, error: err.message || "SERVER_ERROR" });
+      return sendError(res, 500, "SERVER_ERROR", err.message || "SERVER_ERROR");
     }
   }
   static async getCaseFacts(req, res) {
@@ -48,18 +49,18 @@ class AdvancedAnalysisController {
       const case_id = String(req.params.case_id);
       const c = await supabaseService.getCaseById(case_id);
       if (!c) {
-        return res.status(404).json({ success: false, error: "NOT_FOUND: Case not found" });
+        return sendError(res, 404, "NOT_FOUND", "Case not found");
       }
       if (user.role === "client" && c.client_id !== user.id) {
-        return res.status(403).json({ success: false, error: "FORBIDDEN: Access denied" });
+        return sendError(res, 403, "FORBIDDEN", "Access denied");
       }
       let facts = await supabaseService.getCaseFacts(case_id);
       if (user.role === "client") {
         facts = facts.filter((f) => f.verified_by_human);
       }
-      return res.status(200).json({ success: true, data: facts });
+      return sendSuccess(res, facts);
     } catch (err) {
-      return res.status(500).json({ success: false, error: err.message || "SERVER_ERROR" });
+      return sendError(res, 500, "SERVER_ERROR", err.message || "SERVER_ERROR");
     }
   }
   static async verifyFact(req, res) {
@@ -67,11 +68,11 @@ class AdvancedAnalysisController {
       const user = req.user;
       const id = String(req.params.id);
       if (user.role === "client") {
-        return res.status(403).json({ success: false, error: "FORBIDDEN: Clients cannot verify internal case facts" });
+        return sendError(res, 403, "FORBIDDEN", "Clients cannot verify internal case facts");
       }
       const verified = await supabaseService.verifyCaseFact(id, user.id);
       if (!verified) {
-        return res.status(404).json({ success: false, error: "NOT_FOUND: Fact not found" });
+        return sendError(res, 404, "NOT_FOUND", "Fact not found");
       }
       await auditService.log(
         "FACT_VERIFICATION",
@@ -82,9 +83,9 @@ class AdvancedAnalysisController {
         user.id,
         { fact_id: id }
       );
-      return res.status(200).json({ success: true, data: verified });
+      return sendSuccess(res, verified);
     } catch (err) {
-      return res.status(500).json({ success: false, error: err.message || "SERVER_ERROR" });
+      return sendError(res, 500, "SERVER_ERROR", err.message || "SERVER_ERROR");
     }
   }
   // ============================================================
@@ -96,15 +97,15 @@ class AdvancedAnalysisController {
       const case_id = String(req.params.id);
       const c = await supabaseService.getCaseById(case_id);
       if (!c) {
-        return res.status(404).json({ success: false, error: "NOT_FOUND: Case not found" });
+        return sendError(res, 404, "NOT_FOUND", "Case not found");
       }
       if (user.role === "client" && c.client_id !== user.id) {
-        return res.status(403).json({ success: false, error: "FORBIDDEN: Access denied to case chronology" });
+        return sendError(res, 403, "FORBIDDEN", "Access denied to case chronology");
       }
       const events = await supabaseService.getCaseChronology(case_id);
-      return res.status(200).json({ success: true, data: events });
+      return sendSuccess(res, events);
     } catch (err) {
-      return res.status(500).json({ success: false, error: err.message || "SERVER_ERROR" });
+      return sendError(res, 500, "SERVER_ERROR", err.message || "SERVER_ERROR");
     }
   }
   // ============================================================
@@ -116,15 +117,15 @@ class AdvancedAnalysisController {
       const case_id = String(req.params.case_id);
       const c = await supabaseService.getCaseById(case_id);
       if (!c) {
-        return res.status(404).json({ success: false, error: "NOT_FOUND: Case not found" });
+        return sendError(res, 404, "NOT_FOUND", "Case not found");
       }
       if (user.role === "client" && c.client_id !== user.id) {
-        return res.status(403).json({ success: false, error: "FORBIDDEN: Access denied" });
+        return sendError(res, 403, "FORBIDDEN", "Access denied");
       }
       const items = await supabaseService.getEvidenceItems(case_id);
-      return res.status(200).json({ success: true, data: items });
+      return sendSuccess(res, items);
     } catch (err) {
-      return res.status(500).json({ success: false, error: err.message || "SERVER_ERROR" });
+      return sendError(res, 500, "SERVER_ERROR", err.message || "SERVER_ERROR");
     }
   }
   static async addEvidence(req, res) {
@@ -132,10 +133,10 @@ class AdvancedAnalysisController {
       const user = req.user;
       const { case_id, document_id, evidence_type, linked_fact_id } = req.body;
       if (!case_id || !document_id) {
-        return res.status(400).json({ success: false, error: "INVALID_INPUT: case_id and document_id are required" });
+        return sendError(res, 400, "INVALID_INPUT", "case_id and document_id are required");
       }
       if (user.role === "client") {
-        return res.status(403).json({ success: false, error: "FORBIDDEN: Clients cannot manage litigation evidence logs" });
+        return sendError(res, 403, "FORBIDDEN", "Clients cannot manage litigation evidence logs");
       }
       const item = await supabaseService.addEvidenceItem({
         case_id: String(case_id),
@@ -153,9 +154,9 @@ class AdvancedAnalysisController {
         user.id,
         { case_id, document_id }
       );
-      return res.status(200).json({ success: true, data: item });
+      return sendSuccess(res, item);
     } catch (err) {
-      return res.status(500).json({ success: false, error: err.message || "SERVER_ERROR" });
+      return sendError(res, 500, "SERVER_ERROR", err.message || "SERVER_ERROR");
     }
   }
   // ============================================================
@@ -167,15 +168,15 @@ class AdvancedAnalysisController {
       const case_id = String(req.params.case_id);
       const c = await supabaseService.getCaseById(case_id);
       if (!c) {
-        return res.status(404).json({ success: false, error: "NOT_FOUND: Case not found" });
+        return sendError(res, 404, "NOT_FOUND", "Case not found");
       }
       if (user.role === "client") {
-        return res.status(403).json({ success: false, error: "FORBIDDEN: Internal contradiction reasoning is confidential" });
+        return sendError(res, 403, "FORBIDDEN", "Internal contradiction reasoning is confidential");
       }
       const list = await supabaseService.getContradictions(case_id);
-      return res.status(200).json({ success: true, data: list });
+      return sendSuccess(res, list);
     } catch (err) {
-      return res.status(500).json({ success: false, error: err.message || "SERVER_ERROR" });
+      return sendError(res, 500, "SERVER_ERROR", err.message || "SERVER_ERROR");
     }
   }
   static async resolveContradiction(req, res) {
@@ -184,11 +185,11 @@ class AdvancedAnalysisController {
       const id = String(req.params.id);
       const { resolution_notes } = req.body;
       if (user.role === "client") {
-        return res.status(403).json({ success: false, error: "FORBIDDEN: Clients cannot resolve internal contradictions" });
+        return sendError(res, 403, "FORBIDDEN", "Clients cannot resolve internal contradictions");
       }
       const resolved = await supabaseService.resolveContradiction(id, String(resolution_notes || "Resolved"), user.id);
       if (!resolved) {
-        return res.status(404).json({ success: false, error: "NOT_FOUND: Contradiction not found" });
+        return sendError(res, 404, "NOT_FOUND", "Contradiction not found");
       }
       await auditService.log(
         "CONTRADICTION_RESOLVE",
@@ -199,9 +200,9 @@ class AdvancedAnalysisController {
         user.id,
         { id }
       );
-      return res.status(200).json({ success: true, data: resolved });
+      return sendSuccess(res, resolved);
     } catch (err) {
-      return res.status(500).json({ success: false, error: err.message || "SERVER_ERROR" });
+      return sendError(res, 500, "SERVER_ERROR", err.message || "SERVER_ERROR");
     }
   }
   // ============================================================
@@ -214,13 +215,13 @@ class AdvancedAnalysisController {
       if (case_id) {
         const c = await supabaseService.getCaseById(case_id);
         if (user.role === "client" && c?.client_id !== user.id) {
-          return res.status(403).json({ success: false, error: "FORBIDDEN: Access denied" });
+          return sendError(res, 403, "FORBIDDEN", "Access denied");
         }
       }
       const list = await supabaseService.getDeadlines(case_id);
-      return res.status(200).json({ success: true, data: list });
+      return sendSuccess(res, list);
     } catch (err) {
-      return res.status(500).json({ success: false, error: err.message || "SERVER_ERROR" });
+      return sendError(res, 500, "SERVER_ERROR", err.message || "SERVER_ERROR");
     }
   }
   static async createDeadline(req, res) {
@@ -228,7 +229,7 @@ class AdvancedAnalysisController {
       const user = req.user;
       const { case_id, title, deadline_type, due_date, days_remaining } = req.body;
       if (!title || !due_date) {
-        return res.status(400).json({ success: false, error: "INVALID_INPUT: title and due_date are required" });
+        return sendError(res, 400, "INVALID_INPUT", "title and due_date are required");
       }
       const deadline = await supabaseService.createDeadline({
         case_id: case_id ? String(case_id) : "case_gst_2026",
@@ -247,9 +248,9 @@ class AdvancedAnalysisController {
         user.id,
         { title }
       );
-      return res.status(200).json({ success: true, data: deadline });
+      return sendSuccess(res, deadline);
     } catch (err) {
-      return res.status(500).json({ success: false, error: err.message || "SERVER_ERROR" });
+      return sendError(res, 500, "SERVER_ERROR", err.message || "SERVER_ERROR");
     }
   }
   // ============================================================
@@ -260,10 +261,10 @@ class AdvancedAnalysisController {
       const user = req.user;
       const { draft_id, case_id } = req.body;
       if (!draft_id || !case_id) {
-        return res.status(400).json({ success: false, error: "INVALID_INPUT: draft_id and case_id are required" });
+        return sendError(res, 400, "INVALID_INPUT", "draft_id and case_id are required");
       }
       if (user.role === "client") {
-        return res.status(403).json({ success: false, error: "FORBIDDEN: Clients cannot execute internal adversarial legal stress-tests" });
+        return sendError(res, 403, "FORBIDDEN", "Clients cannot execute internal adversarial legal stress-tests");
       }
       const review = await supabaseService.runAdversarialReview(String(draft_id), String(case_id), user.id);
       const agentTask = await supabaseService.createAgentTask({
@@ -284,9 +285,9 @@ class AdvancedAnalysisController {
         user.id,
         { draft_id }
       );
-      return res.status(200).json({ success: true, data: { review, agent_task: agentTask } });
+      return sendSuccess(res, { review, agent_task: agentTask });
     } catch (err) {
-      return res.status(500).json({ success: false, error: err.message || "SERVER_ERROR" });
+      return sendError(res, 500, "SERVER_ERROR", err.message || "SERVER_ERROR");
     }
   }
   static async getAdversarialReviews(req, res) {
@@ -294,12 +295,12 @@ class AdvancedAnalysisController {
       const user = req.user;
       const draft_id = String(req.params.draft_id);
       if (user.role === "client") {
-        return res.status(403).json({ success: false, error: "FORBIDDEN: Access denied" });
+        return sendError(res, 403, "FORBIDDEN", "Access denied");
       }
       const reviews = await supabaseService.getAdversarialReviews(draft_id);
-      return res.status(200).json({ success: true, data: reviews });
+      return sendSuccess(res, reviews);
     } catch (err) {
-      return res.status(500).json({ success: false, error: err.message || "SERVER_ERROR" });
+      return sendError(res, 500, "SERVER_ERROR", err.message || "SERVER_ERROR");
     }
   }
   // ============================================================
@@ -311,15 +312,15 @@ class AdvancedAnalysisController {
       const case_id = String(req.params.case_id);
       const c = await supabaseService.getCaseById(case_id);
       if (!c) {
-        return res.status(404).json({ success: false, error: "NOT_FOUND: Case not found" });
+        return sendError(res, 404, "NOT_FOUND", "Case not found");
       }
       if (user.role === "client") {
-        return res.status(403).json({ success: false, error: "FORBIDDEN: Internal risk exposure score is confidential" });
+        return sendError(res, 403, "FORBIDDEN", "Internal risk exposure score is confidential");
       }
       const risk = await supabaseService.getRiskAssessment(case_id);
-      return res.status(200).json({ success: true, data: risk });
+      return sendSuccess(res, risk);
     } catch (err) {
-      return res.status(500).json({ success: false, error: err.message || "SERVER_ERROR" });
+      return sendError(res, 500, "SERVER_ERROR", err.message || "SERVER_ERROR");
     }
   }
   // ============================================================
@@ -330,9 +331,9 @@ class AdvancedAnalysisController {
       const user = req.user;
       const source_content_id = String(req.params.source_content_id);
       const citations = await supabaseService.getCitationChecks(source_content_id);
-      return res.status(200).json({ success: true, data: citations });
+      return sendSuccess(res, citations);
     } catch (err) {
-      return res.status(500).json({ success: false, error: err.message || "SERVER_ERROR" });
+      return sendError(res, 500, "SERVER_ERROR", err.message || "SERVER_ERROR");
     }
   }
   // ============================================================
@@ -342,9 +343,9 @@ class AdvancedAnalysisController {
     try {
       const user = req.user;
       const summary = await supabaseService.getCaseSummaryReport(user.id, user.role);
-      return res.status(200).json({ success: true, data: summary });
+      return sendSuccess(res, summary);
     } catch (err) {
-      return res.status(500).json({ success: false, error: err.message || "SERVER_ERROR" });
+      return sendError(res, 500, "SERVER_ERROR", err.message || "SERVER_ERROR");
     }
   }
   static async exportReport(req, res) {
@@ -361,9 +362,9 @@ class AdvancedAnalysisController {
         user.id,
         { report_type }
       );
-      return res.status(200).json({ success: true, data: report });
+      return sendSuccess(res, report);
     } catch (err) {
-      return res.status(500).json({ success: false, error: err.message || "SERVER_ERROR" });
+      return sendError(res, 500, "SERVER_ERROR", err.message || "SERVER_ERROR");
     }
   }
 }

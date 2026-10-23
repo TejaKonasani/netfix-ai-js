@@ -1,5 +1,6 @@
 import { supabaseService } from "../services/supabaseService.js";
 import { auditService } from "../services/auditService.js";
+import { sendSuccess, sendError } from "../utils/http.js";
 const queryController = {
   /**
    * POST /api/v1/query/ask
@@ -7,22 +8,19 @@ const queryController = {
   async askQuery(req, res) {
     try {
       if (!req.user) {
-        return res.status(401).json({ success: false, error: { code: "UNAUTHENTICATED", message: "Authentication required." } });
+        return sendError(res, 401, "UNAUTHENTICATED", "Authentication required.");
       }
       const { queryText, entityId, caseId } = req.body;
       if (!queryText || !queryText.trim()) {
-        return res.status(400).json({ success: false, error: { code: "VALIDATION_ERROR", message: "Query text cannot be empty." } });
+        return sendError(res, 400, "VALIDATION_ERROR", "Query text cannot be empty.");
       }
       if (entityId) {
         const entity = await supabaseService.getEntityById(String(entityId));
         if (!entity) {
-          return res.status(400).json({ success: false, error: { code: "VALIDATION_ERROR", message: "Selected entity does not exist." } });
+          return sendError(res, 400, "VALIDATION_ERROR", "Selected entity does not exist.");
         }
         if (req.user.role === "client" && entity.owner_user_id !== req.user.id) {
-          return res.status(403).json({
-            success: false,
-            error: { code: "FORBIDDEN", message: "Unauthorized entity scope for query submission." }
-          });
+          return sendError(res, 403, "FORBIDDEN", "Unauthorized entity scope for query submission.");
         }
       }
       const task = await supabaseService.createAgentQueryTask({
@@ -36,9 +34,7 @@ const queryController = {
         current_step: 1
       });
       await auditService.log("QUERY_SUBMITTED", req.user.email, queryText.substring(0, 50), "QuerySystem", "user", req.user.id);
-      return res.status(201).json({
-        success: true,
-        data: {
+      return sendSuccess(res, {
           taskId: task.id,
           status: task.status,
           currentStep: task.current_step,
@@ -46,10 +42,9 @@ const queryController = {
           totalSteps: 7,
           queryText: task.input_summary,
           message: "Query submitted successfully. Agent pipeline processing."
-        }
-      });
+        }, 201);
     } catch (err) {
-      return res.status(500).json({ success: false, error: { code: "SERVER_ERROR", message: err.message } });
+      return sendError(res, 500, "SERVER_ERROR", err.message);
     }
   },
   /**
@@ -58,19 +53,16 @@ const queryController = {
   async getTaskStatus(req, res) {
     try {
       if (!req.user) {
-        return res.status(401).json({ success: false, error: { code: "UNAUTHENTICATED", message: "Authentication required." } });
+        return sendError(res, 401, "UNAUTHENTICATED", "Authentication required.");
       }
       const taskId = String(req.params.task_id);
       const task = await supabaseService.getAgentTaskById(taskId);
       if (!task) {
-        return res.status(404).json({ success: false, error: { code: "NOT_FOUND", message: "Task ID not found." } });
+        return sendError(res, 404, "NOT_FOUND", "Task ID not found.");
       }
       if (req.user.role === "client" && task.user_id && task.user_id !== req.user.id) {
         await auditService.log("UNAUTHORIZED_TASK_ACCESS_ATTEMPT", req.user.email, `Task #${taskId}`, "QuerySystem", "user", req.user.id);
-        return res.status(403).json({
-          success: false,
-          error: { code: "FORBIDDEN", message: "Unauthorized access to agent task record." }
-        });
+        return sendError(res, 403, "FORBIDDEN", "Unauthorized access to agent task record.");
       }
       const stepsList = [
         { id: 1, name: "Request received", status: "Completed" },
@@ -81,9 +73,7 @@ const queryController = {
         { id: 6, name: "Human review", status: (task.current_step || 1) >= 6 ? "Completed" : task.current_step === 5 ? "Processing" : "Pending" },
         { id: 7, name: "Completed", status: (task.current_step || 1) >= 7 ? "Completed" : "Pending" }
       ];
-      return res.status(200).json({
-        success: true,
-        data: {
+      return sendSuccess(res, {
           taskId: task.id,
           agentName: task.agent_name,
           status: task.status,
@@ -91,10 +81,9 @@ const queryController = {
           steps: stepsList,
           inputSummary: task.input_summary,
           outputSummary: task.output_summary
-        }
-      });
+        });
     } catch (err) {
-      return res.status(500).json({ success: false, error: { code: "SERVER_ERROR", message: err.message } });
+      return sendError(res, 500, "SERVER_ERROR", err.message);
     }
   }
 };

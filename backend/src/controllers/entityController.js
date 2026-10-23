@@ -1,5 +1,6 @@
 import { supabaseService } from "../services/supabaseService.js";
 import { auditService } from "../services/auditService.js";
+import { sendSuccess, sendError } from "../utils/http.js";
 const entityController = {
   /**
    * POST /api/v1/entities
@@ -7,14 +8,14 @@ const entityController = {
   async createEntity(req, res) {
     try {
       if (!req.user) {
-        return res.status(401).json({ success: false, error: { code: "UNAUTHENTICATED", message: "Authentication required." } });
+        return sendError(res, 401, "UNAUTHENTICATED", "Authentication required.");
       }
       const { name, type, gstin, pan, registeredAddress, city, state } = req.body;
       if (!name || !name.trim()) {
-        return res.status(400).json({ success: false, error: { code: "VALIDATION_ERROR", message: "Company/Entity Name is required." } });
+        return sendError(res, 400, "VALIDATION_ERROR", "Company/Entity Name is required.");
       }
       if (!registeredAddress || !registeredAddress.trim()) {
-        return res.status(400).json({ success: false, error: { code: "VALIDATION_ERROR", message: "Registered Address is required." } });
+        return sendError(res, 400, "VALIDATION_ERROR", "Registered Address is required.");
       }
       const entity = await supabaseService.createEntity({
         name: name.trim(),
@@ -27,12 +28,9 @@ const entityController = {
         owner_user_id: req.user.id
       });
       await auditService.log("ENTITY_CREATED", req.user.email, entity.name, "Entities", "user", req.user.id);
-      return res.status(201).json({
-        success: true,
-        data: entity
-      });
+      return sendSuccess(res, entity, 201);
     } catch (err) {
-      return res.status(500).json({ success: false, error: { code: "SERVER_ERROR", message: err.message } });
+      return sendError(res, 500, "SERVER_ERROR", err.message);
     }
   },
   /**
@@ -41,15 +39,12 @@ const entityController = {
   async getEntities(req, res) {
     try {
       if (!req.user) {
-        return res.status(401).json({ success: false, error: { code: "UNAUTHENTICATED", message: "Authentication required." } });
+        return sendError(res, 401, "UNAUTHENTICATED", "Authentication required.");
       }
       const entities = await supabaseService.getEntitiesForUser(req.user.id, req.user.role);
-      return res.status(200).json({
-        success: true,
-        data: entities
-      });
+      return sendSuccess(res, entities);
     } catch (err) {
-      return res.status(500).json({ success: false, error: { code: "SERVER_ERROR", message: err.message } });
+      return sendError(res, 500, "SERVER_ERROR", err.message);
     }
   },
   /**
@@ -58,25 +53,19 @@ const entityController = {
   async getEntityById(req, res) {
     try {
       if (!req.user) {
-        return res.status(401).json({ success: false, error: { code: "UNAUTHENTICATED", message: "Authentication required." } });
+        return sendError(res, 401, "UNAUTHENTICATED", "Authentication required.");
       }
       const id = String(req.params.id);
       const entity = await supabaseService.getEntityById(id);
       if (!entity) {
-        return res.status(404).json({ success: false, error: { code: "NOT_FOUND", message: "Entity not found." } });
+        return sendError(res, 404, "NOT_FOUND", "Entity not found.");
       }
       if (req.user.role === "client" && entity.owner_user_id !== req.user.id) {
-        return res.status(403).json({
-          success: false,
-          error: { code: "FORBIDDEN", message: "Access denied. You do not own or manage this entity." }
-        });
+        return sendError(res, 403, "FORBIDDEN", "Access denied. You do not own or manage this entity.");
       }
-      return res.status(200).json({
-        success: true,
-        data: entity
-      });
+      return sendSuccess(res, entity);
     } catch (err) {
-      return res.status(500).json({ success: false, error: { code: "SERVER_ERROR", message: err.message } });
+      return sendError(res, 500, "SERVER_ERROR", err.message);
     }
   },
   /**
@@ -85,27 +74,21 @@ const entityController = {
   async updateEntity(req, res) {
     try {
       if (!req.user) {
-        return res.status(401).json({ success: false, error: { code: "UNAUTHENTICATED", message: "Authentication required." } });
+        return sendError(res, 401, "UNAUTHENTICATED", "Authentication required.");
       }
       const id = String(req.params.id);
       const entity = await supabaseService.getEntityById(id);
       if (!entity) {
-        return res.status(404).json({ success: false, error: { code: "NOT_FOUND", message: "Entity not found." } });
+        return sendError(res, 404, "NOT_FOUND", "Entity not found.");
       }
       if (req.user.role === "client" && entity.owner_user_id !== req.user.id) {
-        return res.status(403).json({
-          success: false,
-          error: { code: "FORBIDDEN", message: "Access denied. You cannot edit this entity." }
-        });
+        return sendError(res, 403, "FORBIDDEN", "Access denied. You cannot edit this entity.");
       }
       const updated = await supabaseService.updateEntity(id, req.body);
       await auditService.log("ENTITY_UPDATED", req.user.email, entity.name, "Entities", "user", req.user.id);
-      return res.status(200).json({
-        success: true,
-        data: updated
-      });
+      return sendSuccess(res, updated);
     } catch (err) {
-      return res.status(500).json({ success: false, error: { code: "SERVER_ERROR", message: err.message } });
+      return sendError(res, 500, "SERVER_ERROR", err.message);
     }
   }
 };

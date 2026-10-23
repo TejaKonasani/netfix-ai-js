@@ -1,5 +1,6 @@
 import { supabaseService } from "../services/supabaseService.js";
 import { auditService } from "../services/auditService.js";
+import { sendSuccess, sendError } from "../utils/http.js";
 const ocrController = {
   /**
    * POST /api/v1/internal/documents/:id/process
@@ -10,7 +11,7 @@ const ocrController = {
       const id = String(req.params.id);
       const doc = await supabaseService.getDocumentById(id);
       if (!doc) {
-        return res.status(404).json({ success: false, error: { code: "NOT_FOUND", message: "Document record not found for processing." } });
+        return sendError(res, 404, "NOT_FOUND", "Document record not found for processing.");
       }
       const extractedText = `TAX INVOICE (${doc.file_name})
 GSTIN: 29ABCDE1234F1Z5
@@ -35,9 +36,7 @@ Description: Professional Tax & Legal Advisory Services`;
       if (req.user) {
         await auditService.log("DOCUMENT_OCR_PROCESSED", req.user.email, doc.file_name, "OCR_AI", "system", req.user.id);
       }
-      return res.status(200).json({
-        success: true,
-        data: {
+      return sendSuccess(res, {
           documentId: id,
           extractionStatus: "completed",
           confidenceScore: "96.5%",
@@ -49,10 +48,9 @@ Description: Professional Tax & Legal Advisory Services`;
             { field: "Vendor Name", value: "ABC Enterprises", confidence: "92%" }
           ],
           extractedText
-        }
-      });
+        });
     } catch (err) {
-      return res.status(500).json({ success: false, error: { code: "SERVER_ERROR", message: err.message } });
+      return sendError(res, 500, "SERVER_ERROR", err.message);
     }
   }
 };

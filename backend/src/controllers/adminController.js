@@ -1,6 +1,7 @@
 import { supabaseService } from "../services/supabaseService.js";
 import { auditService } from "../services/auditService.js";
 import { healthService } from "../services/healthService.js";
+import { sendSuccess, sendError } from "../utils/http.js";
 const adminController = {
   /**
    * GET /api/v1/admin/dashboard-stats
@@ -27,9 +28,7 @@ const adminController = {
       const openTicketsCount = tickets.filter((t) => t.status === "open").length;
       const inProgressTicketsCount = tickets.filter((t) => t.status === "in_progress").length;
       const activeAgentsCount = agents.filter((a) => a.status === "active").length;
-      return res.status(200).json({
-        success: true,
-        data: {
+      return sendSuccess(res, {
           metrics: {
             totalUsers,
             activeUsers,
@@ -45,10 +44,9 @@ const adminController = {
           roleBreakdown,
           pendingAccessQueue: accessRequests.filter((r) => r.status === "pending").slice(0, 5),
           activeAgentsSummary: agents.slice(0, 4)
-        }
-      });
+        });
     } catch (err) {
-      return res.status(500).json({ success: false, error: { code: "SERVER_ERROR", message: err.message } });
+      return sendError(res, 500, "SERVER_ERROR", err.message);
     }
   },
   /**
@@ -70,12 +68,9 @@ const adminController = {
         registeredDate: u.created_at ? new Date(u.created_at).toLocaleDateString("en-GB") : "2026-09-01",
         lastActive: u.last_login_at ? new Date(u.last_login_at).toLocaleDateString("en-GB") : "Recently"
       }));
-      return res.status(200).json({
-        success: true,
-        data: safeUsers
-      });
+      return sendSuccess(res, safeUsers);
     } catch (err) {
-      return res.status(500).json({ success: false, error: { code: "SERVER_ERROR", message: err.message } });
+      return sendError(res, 500, "SERVER_ERROR", err.message);
     }
   },
   /**
@@ -86,11 +81,9 @@ const adminController = {
       const id = req.params.id;
       const user = await supabaseService.getUserById(id);
       if (!user) {
-        return res.status(404).json({ success: false, error: { code: "NOT_FOUND", message: "User not found." } });
+        return sendError(res, 404, "NOT_FOUND", "User not found.");
       }
-      return res.status(200).json({
-        success: true,
-        data: {
+      return sendSuccess(res, {
           id: user.id,
           name: `${user.first_name} ${user.last_name}`,
           email: user.email,
@@ -104,10 +97,9 @@ const adminController = {
           linkedCasesCount: 4,
           linkedClientsCount: 2,
           linkedPropertiesCount: 3
-        }
-      });
+        });
     } catch (err) {
-      return res.status(500).json({ success: false, error: { code: "SERVER_ERROR", message: err.message } });
+      return sendError(res, 500, "SERVER_ERROR", err.message);
     }
   },
   /**
@@ -119,11 +111,11 @@ const adminController = {
       const { status } = req.body;
       const normStatus = (status || "").toString().toLowerCase();
       if (!["active", "suspended", "pending"].includes(normStatus)) {
-        return res.status(400).json({ success: false, error: { code: "VALIDATION_ERROR", message: "Invalid status." } });
+        return sendError(res, 400, "VALIDATION_ERROR", "Invalid status.");
       }
       const updated = await supabaseService.updateUserStatus(id, normStatus);
       if (!updated) {
-        return res.status(404).json({ success: false, error: { code: "NOT_FOUND", message: "User not found." } });
+        return sendError(res, 404, "NOT_FOUND", "User not found.");
       }
       await auditService.log(
         `USER_STATUS_UPDATED_${normStatus.toUpperCase()}`,
@@ -133,16 +125,13 @@ const adminController = {
         "admin",
         req.admin?.id
       );
-      return res.status(200).json({
-        success: true,
-        data: {
+      return sendSuccess(res, {
           id: updated.id,
           status: capitalize(updated.status),
           message: `User status updated to ${capitalize(updated.status)}.`
-        }
-      });
+        });
     } catch (err) {
-      return res.status(500).json({ success: false, error: { code: "SERVER_ERROR", message: err.message } });
+      return sendError(res, 500, "SERVER_ERROR", err.message);
     }
   },
   /**
@@ -151,9 +140,9 @@ const adminController = {
   async getAgents(_req, res) {
     try {
       const agents = await supabaseService.getAgents();
-      return res.status(200).json({ success: true, data: agents });
+      return sendSuccess(res, agents);
     } catch (err) {
-      return res.status(500).json({ success: false, error: { code: "SERVER_ERROR", message: err.message } });
+      return sendError(res, 500, "SERVER_ERROR", err.message);
     }
   },
   /**
@@ -162,9 +151,9 @@ const adminController = {
   async getAgentTasks(_req, res) {
     try {
       const tasks = await supabaseService.getAgentTasks();
-      return res.status(200).json({ success: true, data: tasks });
+      return sendSuccess(res, tasks);
     } catch (err) {
-      return res.status(500).json({ success: false, error: { code: "SERVER_ERROR", message: err.message } });
+      return sendError(res, 500, "SERVER_ERROR", err.message);
     }
   },
   /**
@@ -173,9 +162,9 @@ const adminController = {
   async getAccessRequests(_req, res) {
     try {
       const reqs = await supabaseService.getAccessRequests();
-      return res.status(200).json({ success: true, data: reqs });
+      return sendSuccess(res, reqs);
     } catch (err) {
-      return res.status(500).json({ success: false, error: { code: "SERVER_ERROR", message: err.message } });
+      return sendError(res, 500, "SERVER_ERROR", err.message);
     }
   },
   /**
@@ -186,7 +175,7 @@ const adminController = {
       const id = req.params.id;
       const { status, note } = req.body;
       if (!["approved", "denied"].includes((status || "").toString().toLowerCase())) {
-        return res.status(400).json({ success: false, error: { code: "VALIDATION_ERROR", message: "Status must be approved or denied." } });
+        return sendError(res, 400, "VALIDATION_ERROR", "Status must be approved or denied.");
       }
       const reviewer = req.admin?.email || "Admin";
       await supabaseService.updateAccessRequest(id, status.toLowerCase(), note || "", reviewer);
@@ -198,12 +187,9 @@ const adminController = {
         "admin",
         req.admin?.id
       );
-      return res.status(200).json({
-        success: true,
-        data: { message: `Access request ${status}.` }
-      });
+      return sendSuccess(res, { message: `Access request ${status}.` });
     } catch (err) {
-      return res.status(500).json({ success: false, error: { code: "SERVER_ERROR", message: err.message } });
+      return sendError(res, 500, "SERVER_ERROR", err.message);
     }
   },
   /**
@@ -212,9 +198,9 @@ const adminController = {
   async getAuditLogs(_req, res) {
     try {
       const logs = await supabaseService.getAuditLogs();
-      return res.status(200).json({ success: true, data: logs });
+      return sendSuccess(res, logs);
     } catch (err) {
-      return res.status(500).json({ success: false, error: { code: "SERVER_ERROR", message: err.message } });
+      return sendError(res, 500, "SERVER_ERROR", err.message);
     }
   },
   /**
@@ -223,9 +209,9 @@ const adminController = {
   async getTickets(_req, res) {
     try {
       const tickets = await supabaseService.getTickets();
-      return res.status(200).json({ success: true, data: tickets });
+      return sendSuccess(res, tickets);
     } catch (err) {
-      return res.status(500).json({ success: false, error: { code: "SERVER_ERROR", message: err.message } });
+      return sendError(res, 500, "SERVER_ERROR", err.message);
     }
   },
   /**
@@ -236,9 +222,9 @@ const adminController = {
       const id = req.params.id;
       const { status, note } = req.body;
       await supabaseService.updateTicketStatus(id, status, note, req.admin?.email || "Admin");
-      return res.status(200).json({ success: true, data: { message: "Ticket updated." } });
+      return sendSuccess(res, { message: "Ticket updated." });
     } catch (err) {
-      return res.status(500).json({ success: false, error: { code: "SERVER_ERROR", message: err.message } });
+      return sendError(res, 500, "SERVER_ERROR", err.message);
     }
   },
   /**
@@ -247,9 +233,9 @@ const adminController = {
   async getSystemHealth(_req, res) {
     try {
       const healthItems = await healthService.checkSystemHealth();
-      return res.status(200).json({ success: true, data: healthItems });
+      return sendSuccess(res, healthItems);
     } catch (err) {
-      return res.status(500).json({ success: false, error: { code: "SERVER_ERROR", message: err.message } });
+      return sendError(res, 500, "SERVER_ERROR", err.message);
     }
   }
 };
