@@ -1,0 +1,9 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": "node",
+  "functions": {
+    "api/**/*.js": {
+      "memory": 1024
+    }
+  }
+}
