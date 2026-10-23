@@ -1,0 +1,32 @@
+import { Router } from "express";
+import { DomainIntelligenceController } from "../controllers/domainIntelligenceController.js";
+import { requireUserAuth } from "../middleware/authMiddleware.js";
+const router = Router();
+router.use(requireUserAuth);
+router.post("/gst/analyze", DomainIntelligenceController.analyzeGst);
+router.get("/gst/filings/:entity_id", DomainIntelligenceController.getGstFilings);
+router.patch("/gst/filings/:id/approve", DomainIntelligenceController.approveGstFiling);
+router.post("/income-tax/analyze", DomainIntelligenceController.analyzeIncomeTax);
+router.get("/income-tax/filings/:entity_id", DomainIntelligenceController.getIncomeTaxFilings);
+router.patch("/income-tax/filings/:id/approve", DomainIntelligenceController.approveIncomeTaxFiling);
+router.get("/knowledge/search", DomainIntelligenceController.searchKnowledge);
+router.post("/legal-research/query", DomainIntelligenceController.queryLegalResearch);
+router.get("/legal-research/history", DomainIntelligenceController.getResearchHistory);
+router.get("/knowledge-graph/related/:node_id", DomainIntelligenceController.getKnowledgeGraphRelated);
+router.post("/drafting/generate", DomainIntelligenceController.generateDraft);
+router.get("/drafting/:case_id", DomainIntelligenceController.getDrafts);
+router.patch("/drafting/:id", DomainIntelligenceController.updateDraft);
+router.post("/reconciliation/run", DomainIntelligenceController.runReconciliation);
+router.get("/reconciliation/:entity_id", DomainIntelligenceController.getReconciliationReports);
+router.post("/email-intake", DomainIntelligenceController.intakeEmail);
+router.get("/email-intake/:case_id", DomainIntelligenceController.getEmailIntakeByCase);
+router.get("/properties", DomainIntelligenceController.getProperties);
+router.get("/properties/:id", DomainIntelligenceController.getPropertyById);
+router.get("/leases/:tenant_id", DomainIntelligenceController.getLeasesByTenant);
+router.get("/projects", DomainIntelligenceController.getProjects);
+router.get("/projects/:id", DomainIntelligenceController.getProjectById);
+router.get("/projects/:id/milestones", DomainIntelligenceController.getProjectMilestones);
+var domainIntelligenceRoutes_default = router;
+export {
+  domainIntelligenceRoutes_default as default
+};
