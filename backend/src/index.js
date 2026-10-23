@@ -19,22 +19,18 @@ import domainIntelligenceRoutes from "./routes/domainIntelligenceRoutes.js";
 import advancedAnalysisRoutes from "./routes/advancedAnalysisRoutes.js";
 import agentRoutes from "./routes/agentRoutes.js";
 import auditorRoutes from "./routes/auditorRoutes.js";
+import { allowedOrigins, isProduction } from "./config/index.js";
 const app = express();
 const PORT = process.env.PORT || 5e3;
 app.use(helmet({ crossOriginResourcePolicy: false }));
 app.use(cookieParser());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
-const allowedOrigins = [
-  process.env.FRONTEND_URL || "http://localhost:3000",
-  process.env.ADMIN_URL || "http://localhost:3001",
-  "http://localhost:5173",
-  "http://localhost:5174"
-];
 app.use(
   cors({
     origin: (origin, callback) => {
-      if (!origin || allowedOrigins.includes(origin) || true) {
+      // No Origin header (same-origin / non-browser clients) or allowlisted origin.
+      if (!origin || allowedOrigins.includes(origin)) {
         callback(null, true);
       } else {
         callback(new Error("CORS policy error: Origin not permitted."));
@@ -78,11 +74,13 @@ app.use((_req, res) => {
 app.use((err, _req, res, _next) => {
   console.error("[GlobalErrorHandler]", err.stack || err.message);
   const status = err.status || 500;
+  // In production, do not leak internal error details to the client.
+  const message = isProduction ? "An unexpected server error occurred." : err.message;
   res.status(status).json({
     success: false,
     error: {
       code: err.code || "INTERNAL_SERVER_ERROR",
-      message: false ? "An unexpected server error occurred." : err.message
+      message
     }
   });
 });

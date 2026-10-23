@@ -1,59 +1,13 @@
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
-import crypto from "crypto";
 import QRCode from "qrcode";
 import { supabaseService } from "../services/supabaseService.js";
 import { auditService } from "../services/auditService.js";
+import { jwtSecret, jwtExpiry } from "../config/index.js";
+import { setAdminSessionCookie, clearAdminSessionCookie } from "../utils/cookies.js";
+import { generateBase32Secret, verifyTotpCode } from "../utils/totp.js";
+import { sendSuccess, sendError } from "../utils/http.js";
 const tempAuthStore = /* @__PURE__ */ new Map();
-function generateBase32Secret(length = 20) {
-  const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
-  const bytes = crypto.randomBytes(length);
-  let secret = "";
-  for (let i = 0; i < bytes.length; i++) {
-    secret += alphabet[bytes[i] % 32];
-  }
-  return secret;
-}
-function base32Decode(base32) {
-  const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
-  const cleaned = base32.toUpperCase().replace(/=+$/g, "").replace(/\s+/g, "");
-  let bits = 0;
-  let value = 0;
-  const output = [];
-  for (let i = 0; i < cleaned.length; i++) {
-    const idx = alphabet.indexOf(cleaned[i]);
-    if (idx === -1) continue;
-    value = value << 5 | idx;
-    bits += 5;
-    if (bits >= 8) {
-      output.push(value >>> bits - 8 & 255);
-      bits -= 8;
-      value = value & (1 << bits) - 1;
-    }
-  }
-  return Buffer.from(output);
-}
-function generateTotpCode(secretBase32, timeStepWindow) {
-  const key = base32Decode(secretBase32);
-  const buffer = Buffer.alloc(8);
-  buffer.writeBigInt64BE(BigInt(timeStepWindow), 0);
-  const hmac = crypto.createHmac("sha1", key).update(buffer).digest();
-  const offset = hmac[hmac.length - 1] & 15;
-  const codeInt = (hmac[offset] & 127) << 24 | (hmac[offset + 1] & 255) << 16 | (hmac[offset + 2] & 255) << 8 | hmac[offset + 3] & 255;
-  return (codeInt % 1e6).toString().padStart(6, "0");
-}
-function verifyTotpCode(secretBase32, inputCode) {
-  if (!secretBase32 || !inputCode || !/^\d{6}$/.test(inputCode)) {
-    return false;
-  }
-  const currentStep = Math.floor(Date.now() / 1e3 / 30);
-  for (let step = currentStep - 1; step <= currentStep + 1; step++) {
-    if (generateTotpCode(secretBase32, step) === inputCode) {
-      return true;
-    }
-  }
-  return false;
-}
 const adminAuthController = {
   /**
    * POST /api/v1/admin/auth/login-step1
@@ -63,24 +17,21 @@ const adminAuthController = {
     try {
       const { email, password } = req.body;
       if (!email || !email.includes("@")) {
-        return res.status(400).json({ success: false, error: { code: "INVALID_CREDENTIALS", message: "Enter a valid email address." } });
+        return sendError(res, 400, "INVALID_CREDENTIALS", "Enter a valid email address.");
       }
       if (!password) {
-        return res.status(400).json({ success: false, error: { code: "INVALID_CREDENTIALS", message: "Password is required." } });
+        return sendError(res, 400, "INVALID_CREDENTIALS", "Password is required.");
       }
       const normEmail = email.trim().toLowerCase();
       const admin = await supabaseService.getAdminByEmail(normEmail);
       if (!admin) {
         await auditService.log("ADMIN_LOGIN_FAILED_UNKNOWN_EMAIL", "Anonymous Admin", normEmail, "AdminAuth", "admin");
-        return res.status(401).json({ success: false, error: { code: "INVALID_CREDENTIALS", message: "Unable to verify administrator credentials." } });
+        return sendError(res, 401, "INVALID_CREDENTIALS", "Unable to verify administrator credentials.");
       }
       let isMatch = await bcrypt.compare(password, admin.password_hash).catch(() => false);
-      if (!isMatch && (password === "Admin123" || password === "Admin@NetfixAI2026")) {
-        isMatch = true;
-      }
       if (!isMatch) {
         await auditService.log("ADMIN_LOGIN_FAILED_PASSWORD", admin.name, normEmail, "AdminAuth", "admin", admin.id);
-        return res.status(401).json({ success: false, error: { code: "INVALID_CREDENTIALS", message: "Unable to verify administrator credentials." } });
+        return sendError(res, 401, "INVALID_CREDENTIALS", "Unable to verify administrator credentials.");
       }
       const isFirstTimeMfa = !admin.mfa_enabled;
       let mfaSecret = admin.mfa_secret;
@@ -113,17 +64,14 @@ const adminAuthController = {
         mfaVerified: false,
         expiresAt: Date.now() + 10 * 60 * 1e3
       });
-      return res.status(200).json({
-        success: true,
-        data: {
+      return sendSuccess(res, {
           tempToken,
           isFirstTimeMfa,
           ...isFirstTimeMfa ? { mfaSecret, otpauthUrl, qrCodeDataUrl } : {},
           message: isFirstTimeMfa ? "Password verified. Setup MFA authenticator app." : "Password verified. Proceed to TOTP MFA step."
-        }
-      });
+        });
     } catch (err) {
-      return res.status(500).json({ success: false, error: { code: "SERVER_ERROR", message: err.message || "Login failed." } });
+      return sendError(res, 500, "SERVER_ERROR", err.message || "Login failed.");
     }
   },
   /**
@@ -134,25 +82,29 @@ const adminAuthController = {
     try {
       const { tempToken, code } = req.body;
       if (!tempToken) {
-        return res.status(400).json({ success: false, error: { code: "MFA_FAILED", message: "Password verification token missing." } });
+        return sendError(res, 400, "MFA_FAILED", "Password verification token missing.");
       }
       if (!code || code.length < 6) {
-        return res.status(400).json({ success: false, error: { code: "MFA_FAILED", message: "Enter the complete 6-digit TOTP code." } });
+        return sendError(res, 400, "MFA_FAILED", "Enter the complete 6-digit TOTP code.");
       }
       const tempState = tempAuthStore.get(tempToken);
       if (!tempState || Date.now() > tempState.expiresAt) {
-        return res.status(401).json({ success: false, error: { code: "SESSION_EXPIRED", message: "Temporary authentication session expired. Please log in again." } });
+        return sendError(res, 401, "SESSION_EXPIRED", "Temporary authentication session expired. Please log in again.");
       }
       if (!/^\d{6}$/.test(code)) {
         await auditService.log("ADMIN_MFA_FAILED", "Administrator", tempState.email, "AdminAuth", "admin");
-        return res.status(401).json({ success: false, error: { code: "MFA_FAILED", message: "Invalid 6-digit TOTP code format." } });
+        return sendError(res, 401, "MFA_FAILED", "Invalid 6-digit TOTP code format.");
       }
       const admin = await supabaseService.getAdminByEmail(tempState.email);
-      const secret = admin?.mfa_secret || tempState.mfaSecret || "JBSWY3DPEHPK3PXP";
+      const secret = admin?.mfa_secret || tempState.mfaSecret;
+      if (!secret) {
+        await auditService.log("ADMIN_MFA_FAILED", "Administrator", tempState.email, "AdminAuth", "admin");
+        return sendError(res, 401, "MFA_FAILED", "MFA secret not found. Please log in again.");
+      }
       const isValid = verifyTotpCode(secret, code);
       if (!isValid) {
         await auditService.log("ADMIN_MFA_FAILED", "Administrator", tempState.email, "AdminAuth", "admin");
-        return res.status(401).json({ success: false, error: { code: "MFA_FAILED", message: "Invalid or expired TOTP verification code." } });
+        return sendError(res, 401, "MFA_FAILED", "Invalid or expired TOTP verification code.");
       }
       if (admin && !admin.mfa_enabled) {
         await supabaseService.updateAdminMfaStatus(admin.id, true, secret);
@@ -165,15 +117,12 @@ const adminAuthController = {
         expiresAt: Date.now() + 10 * 60 * 1e3
       });
       tempAuthStore.delete(tempToken);
-      return res.status(200).json({
-        success: true,
-        data: {
+      return sendSuccess(res, {
           mfaToken,
           message: "MFA verified successfully. Proceed to security check."
-        }
-      });
+        });
     } catch (err) {
-      return res.status(500).json({ success: false, error: { code: "SERVER_ERROR", message: err.message } });
+      return sendError(res, 500, "SERVER_ERROR", err.message);
     }
   },
   /**
@@ -184,14 +133,14 @@ const adminAuthController = {
     try {
       const { mfaToken, captchaToken } = req.body;
       if (!mfaToken) {
-        return res.status(400).json({ success: false, error: { code: "SECURITY_FAILED", message: "MFA verification token required." } });
+        return sendError(res, 400, "SECURITY_FAILED", "MFA verification token required.");
       }
       if (!captchaToken) {
-        return res.status(400).json({ success: false, error: { code: "SECURITY_FAILED", message: "CAPTCHA verification response token required." } });
+        return sendError(res, 400, "SECURITY_FAILED", "CAPTCHA verification response token required.");
       }
       const mfaState = tempAuthStore.get(mfaToken);
       if (!mfaState || !mfaState.mfaVerified || Date.now() > mfaState.expiresAt) {
-        return res.status(401).json({ success: false, error: { code: "SECURITY_FAILED", message: "Out-of-order request or session expired." } });
+        return sendError(res, 401, "SECURITY_FAILED", "Out-of-order request or session expired.");
       }
       const admin = await supabaseService.getAdminByEmail(mfaState.email);
       const adminId = admin ? admin.id : "a0000000-0000-0000-0000-000000000001";
@@ -210,35 +159,25 @@ const adminAuthController = {
           const verifyData = await verifyRes.json();
           if (!verifyData.success) {
             await auditService.log("ADMIN_CAPTCHA_FAILED", "Administrator", mfaState.email, "AdminAuth", "admin");
-            return res.status(401).json({ success: false, error: { code: "CAPTCHA_FAILED", message: "Cloudflare Turnstile CAPTCHA verification failed." } });
+            return sendError(res, 401, "CAPTCHA_FAILED", "Cloudflare Turnstile CAPTCHA verification failed.");
           }
         } catch (turnstileErr) {
           console.warn("Cloudflare Turnstile server verification check warning:", turnstileErr?.message);
         }
       }
       tempAuthStore.delete(mfaToken);
-      const secret = process.env.JWT_SECRET || "netfix_ai_super_secret_jwt_key_2026_dev";
       const adminJwt = jwt.sign(
         { sub: adminId, email: mfaState.email, adminLevel: "SuperAdministrator", type: "admin" },
-        secret,
-        { expiresIn: "7d" }
+        jwtSecret,
+        { expiresIn: jwtExpiry }
       );
-      res.cookie("admin_session", adminJwt, {
-        httpOnly: true,
-        secure: false,
-        sameSite: "strict",
-        maxAge: 7 * 24 * 60 * 60 * 1e3,
-        path: "/"
-      });
+      setAdminSessionCookie(res, adminJwt);
       await auditService.log("ADMIN_LOGIN_SUCCESS", adminName, mfaState.email, "AdminAuth", "admin", adminId);
-      return res.status(200).json({
-        success: true,
-        data: {
+      return sendSuccess(res, {
           message: "Admin session authenticated successfully via secure cookie."
-        }
-      });
+        });
     } catch (err) {
-      return res.status(500).json({ success: false, error: { code: "SERVER_ERROR", message: err.message } });
+      return sendError(res, 500, "SERVER_ERROR", err.message);
     }
   },
   /**
@@ -247,17 +186,16 @@ const adminAuthController = {
   async checkSession(req, res) {
     const token = req.cookies?.admin_session;
     if (!token) {
-      return res.status(200).json({ success: true, data: { authenticated: false } });
+      return sendSuccess(res, { authenticated: false });
     }
     try {
-      const secret = process.env.JWT_SECRET || "netfix_ai_super_secret_jwt_key_2026_dev";
-      const decoded = jwt.verify(token, secret);
+      const decoded = jwt.verify(token, jwtSecret);
       if (decoded && decoded.type === "admin") {
-        return res.status(200).json({ success: true, data: { authenticated: true, email: decoded.email } });
+        return sendSuccess(res, { authenticated: true, email: decoded.email });
       }
-      return res.status(200).json({ success: true, data: { authenticated: false } });
+      return sendSuccess(res, { authenticated: false });
     } catch (err) {
-      return res.status(200).json({ success: true, data: { authenticated: false } });
+      return sendSuccess(res, { authenticated: false });
     }
   },
   /**
@@ -268,7 +206,7 @@ const adminAuthController = {
       await auditService.log("ADMIN_LOGOUT", req.admin.email, req.admin.email, "AdminAuth", "admin", req.admin.id);
     }
     res.clearCookie("admin_session", { path: "/" });
-    return res.status(200).json({ success: true, data: { message: "Logged out of Admin Control Center." } });
+    return sendSuccess(res, { message: "Logged out of Admin Control Center." });
   }
 };
 export {

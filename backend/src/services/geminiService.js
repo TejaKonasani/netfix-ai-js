@@ -1,28 +1,17 @@
 import { GoogleGenerativeAI } from "@google/generative-ai";
+import { geminiModelFlash, geminiModelPro } from "../config/index.js";
 class GeminiService {
   noKeyMode = false;
   apiKey = "";
-  flashModelName = "gemini-1.5-flash";
-  proModelName = "gemini-1.5-pro";
+  flashModelName = geminiModelFlash;
+  proModelName = geminiModelPro;
   constructor() {
     const apiKey = process.env.GEMINI_API_KEY;
-    const flashModel = process.env.GEMINI_MODEL_FLASH;
-    const proModel = process.env.GEMINI_MODEL_PRO;
     if (!apiKey || apiKey.trim() === "") {
       console.warn("[GeminiService] GEMINI_API_KEY is not set \u2014 all calls will return rule_based_fallback");
       this.noKeyMode = true;
     } else {
       this.apiKey = apiKey;
-    }
-    if (!flashModel || flashModel.trim() === "") {
-      console.warn('[GeminiService] GEMINI_MODEL_FLASH not set \u2014 defaulting to "gemini-1.5-flash"');
-    } else {
-      this.flashModelName = flashModel;
-    }
-    if (!proModel || proModel.trim() === "") {
-      console.warn('[GeminiService] GEMINI_MODEL_PRO not set \u2014 defaulting to "gemini-1.5-pro"');
-    } else {
-      this.proModelName = proModel;
     }
   }
   async call(options) {

@@ -1,6 +1,8 @@
 import "cookie-parser";
 import jwt from "jsonwebtoken";
 import { supabaseService } from "../services/supabaseService.js";
+import { jwtSecret } from "../config/index.js";
+import { clearUserSessionCookie } from "../utils/cookies.js";
 const requireUserAuth = async (req, res, next) => {
   const token = req.cookies?.user_session || extractBearerToken(req);
   if (!token) {
@@ -10,8 +12,7 @@ const requireUserAuth = async (req, res, next) => {
     });
   }
   try {
-    const secret = process.env.JWT_SECRET || "netfix_ai_super_secret_jwt_key_2026_dev";
-    const decoded = jwt.verify(token, secret);
+    const decoded = jwt.verify(token, jwtSecret);
     if (!decoded || decoded.type !== "user") {
       return res.status(401).json({
         success: false,
@@ -21,7 +22,7 @@ const requireUserAuth = async (req, res, next) => {
     if (decoded.jti) {
       const isRevoked = await supabaseService.isSessionRevoked(decoded.jti);
       if (isRevoked) {
-        res.clearCookie("user_session", { path: "/" });
+        clearUserSessionCookie(res);
         return res.status(401).json({
           success: false,
           error: { code: "SESSION_REVOKED", message: "Your session has been revoked. Please sign in again." }
@@ -55,8 +56,7 @@ const requireAdminAuth = (req, res, next) => {
     });
   }
   try {
-    const secret = process.env.JWT_SECRET || "netfix_ai_super_secret_jwt_key_2026_dev";
-    const decoded = jwt.verify(token, secret);
+    const decoded = jwt.verify(token, jwtSecret);
     if (!decoded || decoded.type !== "admin") {
       return res.status(401).json({
         success: false,

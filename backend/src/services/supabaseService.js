@@ -17,6 +17,7 @@ class SupabaseService {
   memoryExtractions = /* @__PURE__ */ new Map();
   memoryAgentTasks = /* @__PURE__ */ new Map();
   memoryResetTokens = /* @__PURE__ */ new Map();
+  memoryOtps = /* @__PURE__ */ new Map();
   // Phase 2 Memory Stores
   memoryGstFilings = /* @__PURE__ */ new Map();
   memoryGstMismatches = /* @__PURE__ */ new Map();
@@ -1207,6 +1208,45 @@ Under the instructions and on behalf of our client MARG Technologies Pvt Ltd, we
       }
     }
   }
+  /**
+   * Verify a raw (unhashed) reset token for a given email.
+   * Finds the most recent unused, unexpired token record for that email and
+   * compares the raw token against its stored bcrypt hash.
+   * Returns the token record on success, null otherwise.
+   */
+  async verifyPasswordResetTokenForEmail(email, rawToken) {
+    const normEmail = email.trim().toLowerCase();
+    const nowIso = (/* @__PURE__ */ new Date()).toISOString();
+    // In-memory path (dev / testing)
+    const candidates = [...this.memoryResetTokens.values()]
+      .filter((t) => t.email === normEmail && !t.used_at && new Date(t.expires_at).getTime() > Date.now())
+      .sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+    for (const t of candidates) {
+      const match = await bcrypt.compare(rawToken, t.token_hash).catch(() => false);
+      if (match) return t;
+    }
+    if (this.isConfigured) {
+      try {
+        const client = this.ensureClient();
+        const { data } = await client
+          .from("password_reset_tokens")
+          .select("*")
+          .eq("email", normEmail)
+          .is("used_at", null)
+          .gt("expires_at", nowIso)
+          .order("created_at", { ascending: false })
+          .limit(5);
+        const rows = Array.isArray(data) ? data : [];
+        for (const row of rows) {
+          const match = await bcrypt.compare(rawToken, row.token_hash).catch(() => false);
+          if (match) return row;
+        }
+      } catch (err) {
+        console.warn("[SupabaseService] verifyPasswordResetTokenForEmail DB note:", err);
+      }
+    }
+    return null;
+  }
   // --- MODULE 2: ENTITY MANAGEMENT ---
   async createEntity(entity) {
     const record = {
@@ -1648,17 +1688,20 @@ Under the instructions and on behalf of our client MARG Technologies Pvt Ltd, we
   }
   async saveOtp(otpRecord) {
     const record = {
-      id: otpRecord.id || `otp_${Date.now()}`,
+      id: otpRecord.id || `otp_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`,
       pending_id: otpRecord.pending_id,
       user_id: otpRecord.user_id,
       email: (otpRecord.email || "").trim().toLowerCase(),
       otp_hash: otpRecord.otp_hash || "",
       purpose: otpRecord.purpose || "login",
       expires_at: otpRecord.expires_at || new Date(Date.now() + 10 * 60 * 1e3).toISOString(),
-      verified_at: otpRecord.verified_at,
+      verified_at: otpRecord.verified_at || null,
       attempt_count: otpRecord.attempt_count || 0,
       created_at: (/* @__PURE__ */ new Date()).toISOString()
     };
+    // Keep the latest unverified OTP per (email, purpose) in memory so the
+    // in-memory dev mode can verify codes without a database.
+    this.memoryOtps.set(`${record.email}:${record.purpose}`, record);
     if (this.isConfigured) {
       try {
         const client = this.ensureClient();
@@ -1670,16 +1713,23 @@ Under the instructions and on behalf of our client MARG Technologies Pvt Ltd, we
   }
   async getLatestOtpByEmail(email, purpose) {
     const norm = email.trim().toLowerCase();
-    if (!this.isConfigured) return null;
-    try {
-      const client = this.ensureClient();
-      const { data } = await client.from("otp_verifications").select("*").eq("email", norm).is("verified_at", null).order("created_at", { ascending: false }).limit(1).maybeSingle();
-      return data;
-    } catch (err) {
-      return null;
+    const mem = this.memoryOtps.get(`${norm}:${purpose}`);
+    if (mem && !mem.verified_at) return mem;
+    if (this.isConfigured) {
+      try {
+        const client = this.ensureClient();
+        const { data } = await client.from("otp_verifications").select("*").eq("email", norm).is("verified_at", null).order("created_at", { ascending: false }).limit(1).maybeSingle();
+        return data;
+      } catch (err) {
+        return null;
+      }
     }
+    return null;
   }
   async markOtpVerified(id) {
+    for (const rec of this.memoryOtps.values()) {
+      if (rec.id === id) rec.verified_at = (/* @__PURE__ */ new Date()).toISOString();
+    }
     if (this.isConfigured) {
       try {
         const client = this.ensureClient();

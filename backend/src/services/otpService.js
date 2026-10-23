@@ -1,5 +1,6 @@
 import crypto from "crypto";
 import { supabaseService } from "./supabaseService.js";
+import { jwtSecret, otpExpiryMinutes, otpMaxAttempts, otpRateLimit } from "../config/index.js";
 class OtpService {
   requestCounts = /* @__PURE__ */ new Map();
   /**
@@ -10,8 +11,7 @@ class OtpService {
     this.checkRateLimit(normEmail);
     const otpCode = Math.floor(1e5 + Math.random() * 9e5).toString();
     const otpHash = this.hashOtp(otpCode);
-    const expiryMinutes = parseInt(process.env.OTP_EXPIRY_MINUTES || "10", 10);
-    const expiresAt = new Date(Date.now() + expiryMinutes * 60 * 1e3).toISOString();
+    const expiresAt = new Date(Date.now() + otpExpiryMinutes * 60 * 1e3).toISOString();
     await supabaseService.saveOtp({
       pending_id: pendingId,
       user_id: userId,
@@ -35,11 +35,11 @@ class OtpService {
     if (new Date(latestOtp.expires_at).getTime() < Date.now()) {
       throw new Error("Verification code has expired. Please request a new code.");
     }
-    if (latestOtp.attempt_count >= 5) {
+    if (latestOtp.attempt_count >= otpMaxAttempts) {
       throw new Error("Too many failed verification attempts. Please request a new code.");
     }
     const inputHash = this.hashOtp(code);
-    if (latestOtp.otp_hash !== inputHash && code !== "123456") {
+    if (latestOtp.otp_hash !== inputHash) {
       latestOtp.attempt_count += 1;
       throw new Error("Invalid 6-digit verification code.");
     }
@@ -47,16 +47,15 @@ class OtpService {
     return true;
   }
   hashOtp(otp) {
-    return crypto.createHash("sha256").update(otp + (process.env.JWT_SECRET || "netfix_salt")).digest("hex");
+    return crypto.createHash("sha256").update(otp + jwtSecret).digest("hex");
   }
   checkRateLimit(email) {
     const now = Date.now();
-    const windowMs = 10 * 60 * 1e3;
     const record = this.requestCounts.get(email);
-    if (!record || now - record.windowStart > windowMs) {
+    if (!record || now - record.windowStart > otpRateLimit.windowMs) {
       this.requestCounts.set(email, { count: 1, windowStart: now });
     } else {
-      if (record.count >= 3) {
+      if (record.count >= otpRateLimit.maxRequests) {
         throw new Error("Too many verification code requests. Please wait 10 minutes before trying again.");
       }
       record.count += 1;

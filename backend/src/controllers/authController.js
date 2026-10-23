@@ -4,7 +4,9 @@ import { supabaseService } from "../services/supabaseService.js";
 import { brevoService } from "../services/brevoService.js";
 import { otpService } from "../services/otpService.js";
 import { auditService } from "../services/auditService.js";
-const ALLOWED_ROLES = ["employee", "management", "advocate", "client", "tenant", "regulator"];
+import { jwtSecret, jwtExpiry, sessionMaxAgeMs, demoModeEnabled, ALLOWED_ROLES } from "../config/index.js";
+import { setUserSessionCookie, clearUserSessionCookie } from "../utils/cookies.js";
+import { sendSuccess, sendError } from "../utils/http.js";
 const authController = {
   /**
    * POST /api/v1/auth/register
@@ -25,40 +27,40 @@ const authController = {
         role
       } = req.body;
       if (!firstName || !firstName.trim()) {
-        return res.status(400).json({ success: false, error: { code: "VALIDATION_ERROR", message: "First Name is required." } });
+        return sendError(res, 400, "VALIDATION_ERROR", "First Name is required.");
       }
       if (!lastName || !lastName.trim()) {
-        return res.status(400).json({ success: false, error: { code: "VALIDATION_ERROR", message: "Last Name is required." } });
+        return sendError(res, 400, "VALIDATION_ERROR", "Last Name is required.");
       }
       if (!dob) {
-        return res.status(400).json({ success: false, error: { code: "VALIDATION_ERROR", message: "Date of Birth is required." } });
+        return sendError(res, 400, "VALIDATION_ERROR", "Date of Birth is required.");
       }
       if (!email || !email.includes("@")) {
-        return res.status(400).json({ success: false, error: { code: "VALIDATION_ERROR", message: "Enter a valid email address." } });
+        return sendError(res, 400, "VALIDATION_ERROR", "Enter a valid email address.");
       }
       if (!phone || phone.trim().length < 7) {
-        return res.status(400).json({ success: false, error: { code: "VALIDATION_ERROR", message: "Enter a valid phone number." } });
+        return sendError(res, 400, "VALIDATION_ERROR", "Enter a valid phone number.");
       }
       if (!permanentAddress || !permanentAddress.trim()) {
-        return res.status(400).json({ success: false, error: { code: "VALIDATION_ERROR", message: "Permanent Address is required." } });
+        return sendError(res, 400, "VALIDATION_ERROR", "Permanent Address is required.");
       }
       if (!temporaryAddress || !temporaryAddress.trim()) {
-        return res.status(400).json({ success: false, error: { code: "VALIDATION_ERROR", message: "Temporary Address is required." } });
+        return sendError(res, 400, "VALIDATION_ERROR", "Temporary Address is required.");
       }
       if (!password || password.length < 6) {
-        return res.status(400).json({ success: false, error: { code: "VALIDATION_ERROR", message: "Password must be at least 6 characters." } });
+        return sendError(res, 400, "VALIDATION_ERROR", "Password must be at least 6 characters.");
       }
       if (password !== confirmPassword) {
-        return res.status(400).json({ success: false, error: { code: "VALIDATION_ERROR", message: "Passwords do not match." } });
+        return sendError(res, 400, "VALIDATION_ERROR", "Passwords do not match.");
       }
       const normalizedRole = (role || "client").toString().toLowerCase();
       if (!ALLOWED_ROLES.includes(normalizedRole)) {
-        return res.status(400).json({ success: false, error: { code: "VALIDATION_ERROR", message: "Invalid platform user role." } });
+        return sendError(res, 400, "VALIDATION_ERROR", "Invalid platform user role.");
       }
       const normEmail = email.trim().toLowerCase();
       const existingUser = await supabaseService.getUserByEmail(normEmail);
       if (existingUser) {
-        return res.status(409).json({ success: false, error: { code: "USER_EXISTS", message: "An account with this email already exists." } });
+        return sendError(res, 409, "USER_EXISTS", "An account with this email already exists.");
       }
       const passwordHash = await bcrypt.hash(password, 10);
       const pendingRecord = await supabaseService.savePendingRegistration({
@@ -84,15 +86,12 @@ const authController = {
       }
       await auditService.log("USER_REGISTER_REQUESTED", `${firstName} ${lastName}`, normEmail, "Auth", "user");
       const maskedEmail = normEmail.charAt(0) + "***@" + normEmail.split("@")[1];
-      return res.status(200).json({
-        success: true,
-        data: {
+      return sendSuccess(res, {
           maskedContact: maskedEmail,
           message: "Verification code sent to your email address."
-        }
-      });
+        });
     } catch (err) {
-      return res.status(500).json({ success: false, error: { code: "SERVER_ERROR", message: err.message || "Registration failed." } });
+      return sendError(res, 500, "SERVER_ERROR", err.message || "Registration failed.");
     }
   },
   /**
@@ -102,24 +101,24 @@ const authController = {
     try {
       const { email, password } = req.body;
       if (!email || !email.includes("@")) {
-        return res.status(400).json({ success: false, error: { code: "INVALID_CREDENTIALS", message: "Invalid credentials." } });
+        return sendError(res, 400, "INVALID_CREDENTIALS", "Invalid credentials.");
       }
       if (!password) {
-        return res.status(400).json({ success: false, error: { code: "INVALID_CREDENTIALS", message: "Invalid credentials." } });
+        return sendError(res, 400, "INVALID_CREDENTIALS", "Invalid credentials.");
       }
       const normEmail = email.trim().toLowerCase();
       const user = await supabaseService.getUserByEmail(normEmail);
       if (!user) {
-        return res.status(401).json({ success: false, error: { code: "INVALID_CREDENTIALS", message: "Invalid credentials." } });
+        return sendError(res, 401, "INVALID_CREDENTIALS", "Invalid credentials.");
       }
       if (user.status === "suspended" || user.status === "deactivated" || user.is_deactivated) {
         await auditService.log("USER_LOGIN_BLOCKED_SUSPENDED", `${user.first_name} ${user.last_name}`, normEmail, "Auth", "user", user.id);
-        return res.status(403).json({ success: false, error: { code: "ACCOUNT_SUSPENDED", message: "Your user account is suspended or deactivated. Please contact support." } });
+        return sendError(res, 403, "ACCOUNT_SUSPENDED", "Your user account is suspended or deactivated. Please contact support.");
       }
       const isMatch = await bcrypt.compare(password, user.password_hash);
       if (!isMatch) {
         await auditService.log("USER_LOGIN_FAILED_PASSWORD", `${user.first_name} ${user.last_name}`, normEmail, "Auth", "user", user.id);
-        return res.status(401).json({ success: false, error: { code: "INVALID_CREDENTIALS", message: "Invalid credentials." } });
+        return sendError(res, 401, "INVALID_CREDENTIALS", "Invalid credentials.");
       }
       const otpCode = await otpService.generateAndSaveOtp(normEmail, "login", void 0, user.id);
       try {
@@ -129,15 +128,12 @@ const authController = {
       }
       await auditService.log("USER_LOGIN_OTP_SENT", `${user.first_name} ${user.last_name}`, normEmail, "Auth", "user", user.id);
       const maskedEmail = normEmail.charAt(0) + "***@" + normEmail.split("@")[1];
-      return res.status(200).json({
-        success: true,
-        data: {
+      return sendSuccess(res, {
           maskedContact: maskedEmail,
           message: "Login verification code sent to your registered contact."
-        }
-      });
+        });
     } catch (err) {
-      return res.status(500).json({ success: false, error: { code: "SERVER_ERROR", message: err.message || "Login failed." } });
+      return sendError(res, 500, "SERVER_ERROR", err.message || "Login failed.");
     }
   },
   /**
@@ -146,39 +142,37 @@ const authController = {
    */
   async demoLogin(req, res) {
     try {
+      if (!demoModeEnabled) {
+        return sendError(res, 404, "NOT_FOUND", "The requested API endpoint does not exist.");
+      }
       const { email, password, expectedRole } = req.body;
       if (!email || !email.includes("@")) {
-        return res.status(400).json({ success: false, error: { code: "INVALID_CREDENTIALS", message: "Enter a valid demo email address." } });
+        return sendError(res, 400, "INVALID_CREDENTIALS", "Enter a valid demo email address.");
       }
       if (!password) {
-        return res.status(400).json({ success: false, error: { code: "INVALID_CREDENTIALS", message: "Password is required." } });
+        return sendError(res, 400, "INVALID_CREDENTIALS", "Password is required.");
       }
       const normEmail = email.trim().toLowerCase();
       const user = await supabaseService.getUserByEmail(normEmail);
       if (!user) {
-        return res.status(401).json({ success: false, error: { code: "INVALID_CREDENTIALS", message: "Demo account not found." } });
+        return sendError(res, 401, "INVALID_CREDENTIALS", "Demo account not found.");
       }
       const isMatch = await bcrypt.compare(password, user.password_hash).catch(() => false);
-      if (!isMatch && password === "Demo123") {
-      } else if (!isMatch) {
-        return res.status(401).json({ success: false, error: { code: "INVALID_CREDENTIALS", message: "Invalid demo credentials." } });
+      if (!isMatch) {
+        return sendError(res, 401, "INVALID_CREDENTIALS", "Invalid demo credentials.");
       }
       if (expectedRole) {
         const normExpected = expectedRole.toLowerCase().replace("-vendor", "");
         const normUserRole = user.role.toLowerCase();
         if (normExpected !== normUserRole && !normUserRole.includes(normExpected) && !normExpected.includes(normUserRole)) {
-          return res.status(403).json({
-            success: false,
-            error: { code: "ROLE_MISMATCH", message: `Demo account is restricted to role '${user.role}'. Access denied.` }
-          });
+          return sendError(res, 403, "ROLE_MISMATCH", `Demo account is restricted to role '${user.role}'. Access denied.`);
         }
       }
       const jti = `jti_demo_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
-      const secret = process.env.JWT_SECRET || "netfix_ai_super_secret_jwt_key_2026_dev";
       const userToken = jwt.sign(
         { sub: user.id, email: user.email, role: user.role, type: "user", isDemo: true, jti },
-        secret,
-        { expiresIn: "7d" }
+        jwtSecret,
+        { expiresIn: jwtExpiry }
       );
       await supabaseService.createSession({
         user_id: user.id,
@@ -186,20 +180,11 @@ const authController = {
         jti,
         device_info: req.headers["user-agent"] || "Demo Browser Session",
         ip_address: req.ip || "127.0.0.1",
-        expires_at: new Date(Date.now() + 7 * 24 * 60 * 60 * 1e3).toISOString()
+        expires_at: new Date(Date.now() + sessionMaxAgeMs).toISOString()
       });
-      res.cookie("user_session", userToken, {
-        httpOnly: true,
-        secure: false,
-        sameSite: "strict",
-        maxAge: 7 * 24 * 60 * 60 * 1e3,
-        path: "/"
-      });
+      setUserSessionCookie(res, userToken);
       await auditService.log("DEMO_USER_LOGIN_SUCCESS", `${user.first_name} ${user.last_name}`, normEmail, "Auth", "user", user.id);
-      return res.status(200).json({
-        success: true,
-        isDemo: true,
-        data: {
+      return sendSuccess(res, {
           token: userToken,
           user: {
             id: user.id,
@@ -211,10 +196,9 @@ const authController = {
             status: user.status
           },
           message: "Demo authentication successful."
-        }
-      });
+        });
     } catch (err) {
-      return res.status(500).json({ success: false, error: { code: "SERVER_ERROR", message: err.message || "Demo login failed." } });
+      return sendError(res, 500, "SERVER_ERROR", err.message || "Demo login failed.");
     }
   },
   /**
@@ -224,10 +208,10 @@ const authController = {
     try {
       const { email, otp, purpose = "login" } = req.body;
       if (!email || !email.includes("@")) {
-        return res.status(400).json({ success: false, error: { code: "VALIDATION_ERROR", message: "Email address is required." } });
+        return sendError(res, 400, "VALIDATION_ERROR", "Email address is required.");
       }
       if (!otp || otp.length < 6) {
-        return res.status(400).json({ success: false, error: { code: "VALIDATION_ERROR", message: "Enter the complete 6-digit verification code." } });
+        return sendError(res, 400, "VALIDATION_ERROR", "Enter the complete 6-digit verification code.");
       }
       const normEmail = email.trim().toLowerCase();
       await otpService.verifyOtpCode(normEmail, otp, purpose === "registration" ? "register" : "login");
@@ -235,7 +219,7 @@ const authController = {
       if (purpose === "registration") {
         const pending = await supabaseService.getPendingRegistrationByEmail(normEmail);
         if (!pending) {
-          return res.status(400).json({ success: false, error: { code: "NO_PENDING_REGISTRATION", message: "Registration session expired or not found." } });
+          return sendError(res, 400, "NO_PENDING_REGISTRATION", "Registration session expired or not found.");
         }
         const data = pending.registration_data || {};
         user = await supabaseService.createUser({
@@ -257,16 +241,15 @@ const authController = {
       } else {
         user = await supabaseService.getUserByEmail(normEmail);
         if (!user) {
-          return res.status(404).json({ success: false, error: { code: "USER_NOT_FOUND", message: "User account not found." } });
+          return sendError(res, 404, "USER_NOT_FOUND", "User account not found.");
         }
         await auditService.log("USER_LOGIN_SUCCESS", `${user.first_name} ${user.last_name}`, normEmail, "Auth", "user", user.id);
       }
       const jti = `jti_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
-      const secret = process.env.JWT_SECRET || "netfix_ai_super_secret_jwt_key_2026_dev";
       const userToken = jwt.sign(
         { sub: user.id, email: user.email, role: user.role, type: "user", jti },
-        secret,
-        { expiresIn: "7d" }
+        jwtSecret,
+        { expiresIn: jwtExpiry }
       );
       await supabaseService.createSession({
         user_id: user.id,
@@ -274,18 +257,10 @@ const authController = {
         jti,
         device_info: req.headers["user-agent"] || "Unknown Device",
         ip_address: req.ip || "127.0.0.1",
-        expires_at: new Date(Date.now() + 7 * 24 * 60 * 60 * 1e3).toISOString()
+        expires_at: new Date(Date.now() + sessionMaxAgeMs).toISOString()
       });
-      res.cookie("user_session", userToken, {
-        httpOnly: true,
-        secure: false,
-        sameSite: "strict",
-        maxAge: 7 * 24 * 60 * 60 * 1e3,
-        path: "/"
-      });
-      return res.status(200).json({
-        success: true,
-        data: {
+      setUserSessionCookie(res, userToken);
+      return sendSuccess(res, {
           token: userToken,
           user: {
             id: user.id,
@@ -297,10 +272,9 @@ const authController = {
             status: user.status
           },
           message: "Authentication successful."
-        }
-      });
+        });
     } catch (err) {
-      return res.status(400).json({ success: false, error: { code: "OTP_VERIFICATION_FAILED", message: err.message || "Verification failed." } });
+      return sendError(res, 400, "OTP_VERIFICATION_FAILED", err.message || "Verification failed.");
     }
   },
   /**
@@ -310,7 +284,7 @@ const authController = {
     try {
       const { email } = req.body;
       if (!email || !email.includes("@")) {
-        return res.status(400).json({ success: false, error: { code: "VALIDATION_ERROR", message: "Valid email address required." } });
+        return sendError(res, 400, "VALIDATION_ERROR", "Valid email address required.");
       }
       const normEmail = email.trim().toLowerCase();
       const user = await supabaseService.getUserByEmail(normEmail);
@@ -324,12 +298,9 @@ const authController = {
         }
         await auditService.log("PASSWORD_RESET_REQUESTED", `${user.first_name} ${user.last_name}`, normEmail, "Auth", "user", user.id);
       }
-      return res.status(200).json({
-        success: true,
-        data: { message: "If an account exists for this email, password reset instructions have been sent." }
-      });
+      return sendSuccess(res, { message: "If an account exists for this email, password reset instructions have been sent." });
     } catch (err) {
-      return res.status(500).json({ success: false, error: { code: "SERVER_ERROR", message: err.message } });
+      return sendError(res, 500, "SERVER_ERROR", err.message);
     }
   },
   /**
@@ -339,29 +310,32 @@ const authController = {
     try {
       const { email, resetToken, newPassword, confirmPassword } = req.body;
       if (!email || !resetToken || !newPassword) {
-        return res.status(400).json({ success: false, error: { code: "VALIDATION_ERROR", message: "Missing required reset credentials." } });
+        return sendError(res, 400, "VALIDATION_ERROR", "Missing required reset credentials.");
       }
       if (newPassword.length < 6) {
-        return res.status(400).json({ success: false, error: { code: "VALIDATION_ERROR", message: "Password must be at least 6 characters." } });
+        return sendError(res, 400, "VALIDATION_ERROR", "Password must be at least 6 characters.");
       }
       if (confirmPassword && newPassword !== confirmPassword) {
-        return res.status(400).json({ success: false, error: { code: "VALIDATION_ERROR", message: "Passwords do not match." } });
+        return sendError(res, 400, "VALIDATION_ERROR", "Passwords do not match.");
       }
       const normEmail = email.trim().toLowerCase();
       const user = await supabaseService.getUserByEmail(normEmail);
       if (!user) {
-        return res.status(400).json({ success: false, error: { code: "INVALID_RESET_TOKEN", message: "Invalid or expired reset token." } });
+        return sendError(res, 400, "INVALID_RESET_TOKEN", "Invalid or expired reset token.");
+      }
+      const tokenRecord = await supabaseService.verifyPasswordResetTokenForEmail(normEmail, resetToken);
+      if (!tokenRecord) {
+        await auditService.log("PASSWORD_RESET_INVALID_TOKEN", `${user.first_name} ${user.last_name}`, normEmail, "Auth", "user", user.id);
+        return sendError(res, 400, "INVALID_RESET_TOKEN", "Invalid or expired reset token.");
       }
       const passwordHash = await bcrypt.hash(newPassword, 10);
       await supabaseService.updateUserPassword(user.id, passwordHash);
+      await supabaseService.markPasswordResetTokenUsed(tokenRecord.id);
       await supabaseService.revokeAllUserSessions(user.id);
       await auditService.log("PASSWORD_RESET_COMPLETED", `${user.first_name} ${user.last_name}`, normEmail, "Auth", "user", user.id);
-      return res.status(200).json({
-        success: true,
-        data: { message: "Password has been reset successfully. Please sign in with your new password." }
-      });
+      return sendSuccess(res, { message: "Password has been reset successfully. Please sign in with your new password." });
     } catch (err) {
-      return res.status(500).json({ success: false, error: { code: "SERVER_ERROR", message: err.message } });
+      return sendError(res, 500, "SERVER_ERROR", err.message);
     }
   },
   /**
@@ -370,15 +344,13 @@ const authController = {
   async getMe(req, res) {
     try {
       if (!req.user) {
-        return res.status(401).json({ success: false, error: { code: "UNAUTHENTICATED", message: "Unauthenticated." } });
+        return sendError(res, 401, "UNAUTHENTICATED", "Unauthenticated.");
       }
       const user = await supabaseService.getUserById(req.user.id);
       if (!user) {
-        return res.status(404).json({ success: false, error: { code: "USER_NOT_FOUND", message: "User record not found." } });
+        return sendError(res, 404, "USER_NOT_FOUND", "User record not found.");
       }
-      return res.status(200).json({
-        success: true,
-        data: {
+      return sendSuccess(res, {
           id: user.id,
           firstName: user.first_name,
           lastName: user.last_name,
@@ -389,10 +361,9 @@ const authController = {
           role: user.role,
           status: user.status,
           createdAt: user.created_at
-        }
-      });
+        });
     } catch (err) {
-      return res.status(500).json({ success: false, error: { code: "SERVER_ERROR", message: err.message } });
+      return sendError(res, 500, "SERVER_ERROR", err.message);
     }
   },
   /**
@@ -401,7 +372,7 @@ const authController = {
   async updateMe(req, res) {
     try {
       if (!req.user) {
-        return res.status(401).json({ success: false, error: { code: "UNAUTHENTICATED", message: "Unauthenticated." } });
+        return sendError(res, 401, "UNAUTHENTICATED", "Unauthenticated.");
       }
       const { firstName, middleName, lastName, phone, permanentAddress, temporaryAddress } = req.body;
       const updated = await supabaseService.updateUserProfile(req.user.id, {
@@ -413,12 +384,9 @@ const authController = {
         temporary_address: temporaryAddress
       });
       await auditService.log("USER_PROFILE_UPDATED", req.user.email, req.user.email, "Users", "user", req.user.id);
-      return res.status(200).json({
-        success: true,
-        data: { message: "Profile updated successfully.", user: updated }
-      });
+      return sendSuccess(res, { message: "Profile updated successfully.", user: updated });
     } catch (err) {
-      return res.status(500).json({ success: false, error: { code: "SERVER_ERROR", message: err.message } });
+      return sendError(res, 500, "SERVER_ERROR", err.message);
     }
   },
   /**
@@ -428,7 +396,7 @@ const authController = {
     try {
       const { email, purpose = "login" } = req.body;
       if (!email || !email.includes("@")) {
-        return res.status(400).json({ success: false, error: { code: "VALIDATION_ERROR", message: "Valid email is required." } });
+        return sendError(res, 400, "VALIDATION_ERROR", "Valid email is required.");
       }
       const normEmail = email.trim().toLowerCase();
       const otpPurpose = purpose === "registration" ? "register" : "login";
@@ -438,12 +406,9 @@ const authController = {
       } catch (brevoErr) {
         console.warn(`[AuthController] Brevo resend note: ${brevoErr.message}`);
       }
-      return res.status(200).json({
-        success: true,
-        data: { message: "New verification code sent to registered contact." }
-      });
+      return sendSuccess(res, { message: "New verification code sent to registered contact." });
     } catch (err) {
-      return res.status(400).json({ success: false, error: { code: "RESEND_FAILED", message: err.message || "Failed to resend verification code." } });
+      return sendError(res, 400, "RESEND_FAILED", err.message || "Failed to resend verification code.");
     }
   },
   /**
@@ -453,11 +418,9 @@ const authController = {
     try {
       const roleParam = req.params.role;
       if (!req.user) {
-        return res.status(401).json({ success: false, error: { code: "UNAUTHENTICATED", message: "Unauthenticated." } });
+        return sendError(res, 401, "UNAUTHENTICATED", "Unauthenticated.");
       }
-      return res.status(200).json({
-        success: true,
-        data: {
+      return sendSuccess(res, {
           role: req.user.role,
           requestedRole: roleParam,
           userName: req.user.email,
@@ -466,10 +429,9 @@ const authController = {
             { id: 1, action: "Document uploaded", time: "2 hours ago" },
             { id: 2, action: "AI Task completed", time: "5 hours ago" }
           ]
-        }
-      });
+        });
     } catch (err) {
-      return res.status(500).json({ success: false, error: { code: "SERVER_ERROR", message: err.message } });
+      return sendError(res, 500, "SERVER_ERROR", err.message);
     }
   },
   /**
@@ -479,8 +441,8 @@ const authController = {
     if (req.user?.jti) {
       await supabaseService.revokeSession(req.user.jti);
     }
-    res.clearCookie("user_session", { path: "/" });
-    return res.status(200).json({ success: true, data: { message: "Logged out successfully." } });
+    clearUserSessionCookie(res);
+    return sendSuccess(res, { message: "Logged out successfully." });
   }
 };
 export {
